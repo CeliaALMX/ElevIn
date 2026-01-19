@@ -1,16 +1,30 @@
-import React from 'react';
-import { MessageCircle, Search, AlertTriangle, Check, ChevronDown } from 'lucide-react';
-import Card from '../ui/Card'; // Asumimos que extraes Card a su propio archivo o lo usas desde App
+import React, { useEffect, useState } from 'react';
+import { MessageCircle, Search, AlertTriangle, Check, ChevronDown, Loader2 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 import Button from '../ui/Button';
 
-// Mock data local para visualización
-const TECHNICAL_THREADS = [
-  { id: 1, title: 'Error 50 en equipo Schindler 3300', author: 'Carlos Ruiz', status: 'resolved', replies: 12, tag: 'Tracción' },
-  { id: 2, title: 'Ruido en operador de puertas Fermator', author: 'Ana López', status: 'open', replies: 3, tag: 'Puertas' },
-  { id: 3, title: 'Duda sobre normativa EN-81-20 foso reducido', author: 'Ing. Pedro', status: 'open', replies: 0, tag: 'Normativa' },
-];
-
 const SupportView = () => {
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchTickets();
+  }, []);
+
+  const fetchTickets = async () => {
+    const { data, error } = await supabase
+      .from('support_tickets')
+      .select(`
+        *,
+        profiles (full_name)
+      `)
+      .order('created_at', { ascending: false });
+      
+    if (error) console.error('Error fetching tickets', error);
+    else setTickets(data);
+    setLoading(false);
+  };
+
   return (
     <div className="pb-24 pt-4 max-w-2xl mx-auto space-y-4 px-4">
       {/* Header de Soporte */}
@@ -36,31 +50,38 @@ const SupportView = () => {
       {/* Lista de Hilos */}
       <div className="space-y-3">
         <h3 className="font-bold text-gray-700 dark:text-gray-300 px-1">Discusiones Recientes</h3>
-        {TECHNICAL_THREADS.map((thread) => (
-          <div key={thread.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow border border-gray-100 dark:border-slate-700 hover:border-blue-300 transition-colors cursor-pointer">
-            <div className="flex justify-between items-start">
-              <div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase mb-1 inline-block ${
-                  thread.tag === 'Tracción' ? 'bg-orange-100 text-orange-700' :
-                  thread.tag === 'Puertas' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'
-                }`}>
-                  {thread.tag}
-                </span>
-                <h4 className="font-bold text-blue-900 dark:text-white text-lg leading-tight">{thread.title}</h4>
-                <p className="text-xs text-gray-500 mt-1">Iniciado por {thread.author}</p>
+        
+        {loading ? (
+          <div className="flex justify-center py-8"><Loader2 className="animate-spin text-blue-600"/></div>
+        ) : tickets.length === 0 ? (
+          <p className="text-center text-gray-500 py-4">No hay consultas recientes.</p>
+        ) : (
+          tickets.map((thread) => (
+            <div key={thread.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow border border-gray-100 dark:border-slate-700 hover:border-blue-300 transition-colors cursor-pointer">
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase mb-1 inline-block ${
+                    thread.tag === 'Tracción' ? 'bg-orange-100 text-orange-700' :
+                    thread.tag === 'Puertas' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {thread.tag || 'General'}
+                  </span>
+                  <h4 className="font-bold text-blue-900 dark:text-white text-lg leading-tight">{thread.title}</h4>
+                  <p className="text-xs text-gray-500 mt-1">Iniciado por {thread.profiles?.full_name || 'Anónimo'}</p>
+                </div>
+                {thread.status === 'resolved' ? (
+                   <span className="bg-green-100 text-green-700 p-1 rounded-full"><Check size={16} /></span>
+                ) : (
+                   <span className="bg-gray-100 text-gray-400 p-1 rounded-full"><MessageCircle size={16} /></span>
+                )}
               </div>
-              {thread.status === 'resolved' ? (
-                 <span className="bg-green-100 text-green-700 p-1 rounded-full"><Check size={16} /></span>
-              ) : (
-                 <span className="bg-gray-100 text-gray-400 p-1 rounded-full"><MessageCircle size={16} /></span>
-              )}
+              <div className="mt-3 flex items-center gap-4 text-xs text-gray-400 border-t dark:border-slate-700 pt-2">
+                <span className="flex items-center gap-1"><MessageCircle size={14}/> 0 respuestas</span>
+                <span className="flex items-center gap-1 text-blue-600 font-medium">Ver detalles <ChevronDown size={14}/></span>
+              </div>
             </div>
-            <div className="mt-3 flex items-center gap-4 text-xs text-gray-400 border-t dark:border-slate-700 pt-2">
-              <span className="flex items-center gap-1"><MessageCircle size={14}/> {thread.replies} respuestas</span>
-              <span className="flex items-center gap-1 text-blue-600 font-medium">Ver solución <ChevronDown size={14}/></span>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );

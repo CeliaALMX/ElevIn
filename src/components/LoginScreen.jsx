@@ -1,20 +1,12 @@
 import React, { useState } from 'react';
-import { ArrowUp, Users, Wrench, Briefcase, CheckCircle } from 'lucide-react';
+import { ArrowUp, Users, Wrench, Briefcase, CheckCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import Button from './ui/Button';
-
-// Usuario de respaldo por si falla la conexión de datos
-const SAFE_USER = {
-  id: 1,
-  name: "Técnico ElevIn",
-  role: "Técnico Especialista",
-  avatar: "TE",
-  location: "CDMX",
-  bio: "Especialista en mantenimiento multimarca.",
-  company: "Independiente"
-};
+import { supabase } from '../lib/supabase';
 
 const LoginScreen = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false); // Estado para ver contraseña
   
   const [formData, setFormData] = useState({
     name: '',
@@ -27,40 +19,53 @@ const LoginScreen = ({ onLogin }) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault(); // Evita recarga
-    console.log("Submit disparado");
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
 
-    let userToUse;
-
-    if (isLogin) {
-      // Login: Usamos el usuario seguro
-      userToUse = SAFE_USER;
-    } else {
-      // Registro: Usamos los datos del form
-      userToUse = {
-        ...SAFE_USER,
-        id: Date.now(),
-        name: formData.name || 'Nuevo Usuario',
-        role: formData.role,
-        email: formData.email
-      };
+    try {
+      if (isLogin) {
+        // --- LOGIN ---
+        const { error } = await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password,
+        });
+        if (error) throw error;
+      } else {
+        // --- REGISTRO ---
+        const initials = formData.name ? formData.name.substring(0, 2).toUpperCase() : 'US';
+        
+        const { error } = await supabase.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            data: {
+              full_name: formData.name,
+              role: formData.role,
+              avatar_initials: initials
+            },
+            // Redirige al localhost después de confirmar (configura esto también en Supabase)
+            emailRedirectTo: window.location.origin 
+          }
+        });
+        if (error) throw error;
+        alert('Registro exitoso. Si no entras automáticamente, por favor revisa tu correo para confirmar la cuenta.');
+      }
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
     }
-
-    // Ejecutamos la función de entrada
-    if (onLogin) onLogin(userToUse);
   };
 
   return (
     <div className="min-h-screen w-full flex bg-gray-50 dark:bg-slate-900">
       
-      {/* --- PANEL IZQUIERDO (DISEÑO COMPLETO RESTAURADO) --- */}
+      {/* --- PANEL IZQUIERDO --- */}
       <div className="hidden lg:flex lg:w-1/2 bg-blue-900 relative overflow-hidden flex-col justify-between p-12 text-white">
-        {/* Decoración de fondo */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 -translate-y-1/2 translate-x-1/2"></div>
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 translate-y-1/2 -translate-x-1/2"></div>
 
-        {/* Logo */}
         <div className="flex items-center gap-3 z-10">
           <div className="bg-yellow-400 p-2 rounded-lg">
             <ArrowUp className="w-6 h-6 text-blue-900" strokeWidth={3} />
@@ -68,7 +73,6 @@ const LoginScreen = ({ onLogin }) => {
           <span className="text-2xl font-bold tracking-tight">ElevatorConnect</span>
         </div>
 
-        {/* Contenido Central con los 3 Puntos */}
         <div className="z-10 max-w-lg">
           <h2 className="text-4xl font-extrabold mb-6 leading-tight">
             La comunidad oficial para profesionales del <span className="text-yellow-400">Transporte Vertical</span>.
@@ -78,7 +82,6 @@ const LoginScreen = ({ onLogin }) => {
           </p>
 
           <div className="space-y-5">
-            {/* 1. Soporte */}
             <div className="flex items-center gap-4">
               <div className="bg-blue-800 p-3 rounded-full shadow-lg">
                 <Wrench className="w-6 h-6 text-yellow-400" />
@@ -89,7 +92,6 @@ const LoginScreen = ({ onLogin }) => {
               </div>
             </div>
 
-            {/* 2. Empleos */}
             <div className="flex items-center gap-4">
               <div className="bg-blue-800 p-3 rounded-full shadow-lg">
                 <Briefcase className="w-6 h-6 text-yellow-400" />
@@ -100,7 +102,6 @@ const LoginScreen = ({ onLogin }) => {
               </div>
             </div>
 
-            {/* 3. NETWORKING (RESTAURADO) */}
             <div className="flex items-center gap-4">
               <div className="bg-blue-800 p-3 rounded-full shadow-lg">
                 <Users className="w-6 h-6 text-yellow-400" />
@@ -113,13 +114,12 @@ const LoginScreen = ({ onLogin }) => {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="z-10 text-xs text-blue-300">
           © 2024 ElevatorConnect. v1.0.5
         </div>
       </div>
 
-      {/* --- PANEL DERECHO (FORMULARIO FUNCIONAL) --- */}
+      {/* --- PANEL DERECHO --- */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6">
         <div className="w-full max-w-md bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700">
           
@@ -148,6 +148,7 @@ const LoginScreen = ({ onLogin }) => {
                   <input
                     name="name"
                     type="text"
+                    required
                     value={formData.name}
                     onChange={handleChange}
                     className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
@@ -175,6 +176,7 @@ const LoginScreen = ({ onLogin }) => {
               <input
                 name="email"
                 type="email"
+                required
                 value={formData.email}
                 onChange={handleChange}
                 className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
@@ -182,24 +184,33 @@ const LoginScreen = ({ onLogin }) => {
               />
             </div>
             
-            <div>
+            <div className="relative">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Contraseña</label>
               <input
                 name="password"
-                type="password"
+                type={showPassword ? "text" : "password"} // Cambia el tipo dinámicamente
+                required
                 value={formData.password}
                 onChange={handleChange}
-                className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
+                className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white pr-10" // pr-10 para espacio del icono
                 placeholder="••••••••"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-[34px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
             </div>
 
             <Button 
               type="submit" 
               variant="primary" 
-              className="w-full py-3 text-base mt-2 shadow-lg shadow-blue-900/20"
+              disabled={loading}
+              className="w-full py-3 text-base mt-2 shadow-lg shadow-blue-900/20 flex justify-center items-center"
             >
-              {isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}
+              {loading ? <Loader2 className="animate-spin" /> : (isLogin ? 'Iniciar Sesión' : 'Crear Cuenta')}
             </Button>
           </form>
 
@@ -215,7 +226,7 @@ const LoginScreen = ({ onLogin }) => {
           
           <div className="mt-4 text-center">
             <p className="text-xs text-gray-400 flex items-center justify-center gap-1">
-              <CheckCircle size={12} className="text-green-500" /> Conexión segura
+              <CheckCircle size={12} className="text-green-500" /> Conexión segura con Supabase
             </p>
           </div>
         </div>
