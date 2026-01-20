@@ -3,7 +3,7 @@ import {
   Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy,         
   MapPin, Wrench, ThumbsUp, ThumbsDown, MessageSquare, Share2, Settings,
   Moon, Sun, Loader2, Image, Video, X, Send, MoreHorizontal,
-  Edit2, Trash2, MoreVertical
+  Edit2, Trash2, MoreVertical, Check
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -21,6 +21,23 @@ import JobsView from './components/views/JobsView';
 import SupportView from './components/views/SupportView';
 import NetworkingView from './components/views/NetworkingView';
 import ProfileView from './components/views/ProfileView';
+
+// --- HELPER: SUBIR ARCHIVOS ---
+const uploadFileToSupabase = async (file, userId) => {
+  if (!file) return null;
+  try {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${userId}/${Date.now()}.${fileExt}`;
+    const { error } = await supabase.storage.from('posts-files').upload(fileName, file);
+    if (error) throw error;
+    const { data } = supabase.storage.from('posts-files').getPublicUrl(fileName);
+    return data.publicUrl;
+  } catch (error) {
+    console.error("Error subiendo archivo:", error);
+    alert("Error al subir archivo. Intenta de nuevo.");
+    return null;
+  }
+};
 
 // --- COMPONENTE LIGHTBOX (PANTALLA COMPLETA) ---
 const MediaModal = ({ media, onClose }) => {
@@ -163,6 +180,251 @@ const CommentItem = ({ comment, user, onDelete, onEdit }) => {
   );
 };
 
+// --- COMPONENTE POST ITEM (Con lógica de edición/borrado) ---
+const PostItem = ({ 
+  post, 
+  user, 
+  onVote, 
+  onDelete, 
+  onUpdate, 
+  onToggleComments, 
+  showComments, 
+  comments, 
+  loadingComments, 
+  onCommentAction,
+  setFullScreenMedia 
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(post.content);
+  const [showMenu, setShowMenu] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Estados para edición de media
+  const [editMediaPreview, setEditMediaPreview] = useState(post.image_url || post.video_url || null);
+  const [editMediaType, setEditMediaType] = useState(post.image_url ? 'image' : post.video_url ? 'video' : null);
+  const [newMediaFile, setNewMediaFile] = useState(null);
+
+  const [newCommentText, setNewCommentText] = useState('');
+  const [sendingComment, setSendingComment] = useState(false);
+  
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleFileSelect = (e, type) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      alert("Archivo muy pesado (máx 50MB)");
+      return;
+    }
+    setEditMediaType(type);
+    setNewMediaFile(file);
+    setEditMediaPreview(URL.createObjectURL(file));
+  };
+
+  const clearEditMedia = () => {
+    setNewMediaFile(null);
+    setEditMediaPreview(null);
+    setEditMediaType(null);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    let finalImageUrl = post.image_url;
+    let finalVideoUrl = post.video_url;
+
+    // Si el usuario borró la media que había
+    if (!editMediaPreview) {
+      finalImageUrl = null;
+      finalVideoUrl = null;
+    } 
+    // Si subió un archivo nuevo
+    else if (newMediaFile) {
+      const url = await uploadFileToSupabase(newMediaFile, user.id);
+      if (url) {
+        if (editMediaType === 'image') { finalImageUrl = url; finalVideoUrl = null; }
+        if (editMediaType === 'video') { finalVideoUrl = url; finalImageUrl = null; }
+      }
+    }
+
+    await onUpdate(post.id, editText, finalImageUrl, finalVideoUrl);
+    setIsSaving(false);
+    setIsEditing(false);
+  };
+
+  const submitComment = async () => {
+    if (!newCommentText.trim()) return;
+    setSendingComment(true);
+    await onCommentAction.add(post.id, newCommentText);
+    setNewCommentText('');
+    setSendingComment(false);
+  };
+
+  const isOwner = user.id === post.user_id;
+
+  return (
+    <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+      <div className="flex gap-3 mb-2 items-start">
+        <Avatar initials={post.profiles?.avatar_initials || '??'} src={post.profiles?.avatar_url} />
+        <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-start">
+            <div className="truncate pr-2">
+               <h4 className="font-bold text-sm text-gray-900 dark:text-white truncate">{post.profiles?.full_name || 'Usuario'}</h4>
+               <span className="text-[10px] text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                 {post.profiles?.role || 'Miembro'}
+               </span>
+            </div>
+            
+            {/* MENÚ DE OPCIONES (EDITAR / BORRAR) */}
+            {isOwner && !isEditing && (
+              <div className="relative" ref={menuRef}>
+                <button onClick={() => setShowMenu(!showMenu)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 shrink-0">
+                  <MoreHorizontal size={18} />
+                </button>
+                {showMenu && (
+                  <div className="absolute right-0 top-6 w-32 bg-white dark:bg-slate-800 shadow-xl rounded-md border border-gray-100 dark:border-slate-600 z-50 overflow-hidden text-xs">
+                    <button 
+                      onClick={() => { setIsEditing(true); setShowMenu(false); }}
+                      className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-blue-600 active:bg-blue-50"
+                    >
+                      <Edit2 size={14} /> Editar
+                    </button>
+                    <button 
+                      onClick={() => { if(window.confirm('¿Eliminar publicación?')) onDelete(post.id); }}
+                      className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-red-600 active:bg-red-50"
+                    >
+                      <Trash2 size={14} /> Eliminar
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      {/* --- MODO EDICIÓN --- */}
+      {isEditing ? (
+        <div className="mb-3">
+          <textarea
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            className="w-full p-2 text-sm bg-gray-50 dark:bg-slate-900 border border-blue-200 rounded focus:ring-1 focus:ring-blue-500 resize-none dark:text-white mb-2"
+            rows={4}
+          />
+          
+          {/* PREVISUALIZACIÓN MEDIA EN EDICIÓN */}
+          {editMediaPreview && (
+            <div className="relative mb-2 rounded-lg overflow-hidden bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 w-fit">
+              <button onClick={clearEditMedia} className="absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full hover:bg-red-600 z-10"><X size={14} /></button>
+              {editMediaType === 'image' ? (
+                <img src={editMediaPreview} alt="Preview" className="h-32 object-cover" />
+              ) : (
+                <video src={editMediaPreview} className="h-32 bg-black" />
+              )}
+            </div>
+          )}
+
+          {/* BOTONES DE EDICIÓN */}
+          <div className="flex justify-between items-center mt-2">
+            <div className="flex gap-2">
+               <label className="cursor-pointer p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Image size={18} /><input type="file" accept="image/*" className="hidden" onChange={(e)=>handleFileSelect(e,'image')}/></label>
+               <label className="cursor-pointer p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Video size={18} /><input type="file" accept="video/*" className="hidden" onChange={(e)=>handleFileSelect(e,'video')}/></label>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setIsEditing(false); setEditText(post.content); setEditMediaPreview(post.image_url || post.video_url); }} className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded">Cancelar</button>
+              <Button onClick={handleSave} disabled={isSaving} className="text-xs px-4 py-1.5 rounded h-auto">
+                 {isSaving ? <Loader2 className="animate-spin" size={14}/> : 'Guardar Cambios'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* --- MODO VISUALIZACIÓN --- */
+        <>
+          {post.content && (
+            <p className="text-gray-800 dark:text-gray-200 text-sm mb-3 whitespace-pre-wrap leading-relaxed break-words">{post.content}</p>
+          )}
+          
+          {post.image_url && (
+            <div className="cursor-pointer overflow-hidden rounded-lg border border-gray-100 dark:border-slate-700 mb-3" onClick={() => setFullScreenMedia({ url: post.image_url, type: 'image' })}>
+              <img src={post.image_url} alt="Post content" className="w-full object-cover max-h-96 hover:scale-[1.01] transition-transform duration-300" />
+            </div>
+          )}
+          {post.video_url && (
+            <div className="relative mb-3 group" onClick={() => setFullScreenMedia({ url: post.video_url, type: 'video' })}>
+               <video src={post.video_url} className="w-full rounded-lg bg-black max-h-96 border border-gray-100 dark:border-slate-700" />
+               <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition-colors cursor-pointer"><div className="bg-white/90 p-3 rounded-full shadow-lg"><Video size={24} className="text-blue-900 ml-1" /></div></div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="flex justify-between border-t dark:border-slate-700 pt-3 mt-1 px-1">
+        <div className="flex gap-4 sm:gap-6">
+          <button onClick={() => onVote(post.id, 'like')} className={`flex items-center gap-1.5 text-sm transition-colors ${post.user_vote === 'like' ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
+            <ThumbsUp size={18} className={post.user_vote === 'like' ? 'fill-blue-100' : ''} /> <span>{post.likes_count || 0}</span>
+          </button>
+          <button onClick={() => onVote(post.id, 'dislike')} className={`flex items-center gap-1.5 text-sm transition-colors ${post.user_vote === 'dislike' ? 'text-red-500 font-bold' : 'text-gray-500'}`}>
+            <ThumbsDown size={18} className={post.user_vote === 'dislike' ? 'fill-red-100' : ''} /> <span>{post.dislikes_count || 0}</span>
+          </button>
+        </div>
+        <div className="flex gap-4 sm:gap-6">
+          <button onClick={onToggleComments} className={`flex items-center gap-1.5 text-sm transition-colors ${showComments ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
+            <MessageSquare size={18} /> <span>{post.comments_count || 0}</span>
+          </button>
+          <button className="text-gray-500 hover:text-blue-600"><Share2 size={18} /></button>
+        </div>
+      </div>
+
+      {showComments && (
+        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-slate-700 animate-in slide-in-from-top-2">
+          <div className="space-y-3 mb-4 pr-1">
+            {loadingComments && !comments ? (
+              <div className="text-center py-2 text-gray-400 text-xs">Cargando...</div>
+            ) : (
+              comments?.length > 0 ? (
+                comments.map(comment => (
+                  <CommentItem key={comment.id} comment={comment} user={user} onDelete={onCommentAction.delete} onEdit={onCommentAction.edit} />
+                ))
+              ) : <p className="text-center text-xs text-gray-400 italic py-2">Sé el primero en comentar.</p>
+            )}
+          </div>
+          <div className="flex gap-2 items-center">
+            <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="hidden sm:flex" />
+            <div className="flex-1 relative">
+              <input 
+                type="text" 
+                value={newCommentText} 
+                onChange={(e) => setNewCommentText(e.target.value)} 
+                placeholder="Escribe un comentario..." 
+                disabled={sendingComment}
+                className="w-full text-sm py-2 pl-3 pr-10 rounded-full bg-gray-100 dark:bg-slate-900 border-none focus:ring-1 focus:ring-blue-500 dark:text-white disabled:opacity-50" 
+                onKeyDown={(e) => e.key === 'Enter' && !sendingComment && submitComment()} 
+              />
+              <button 
+                onClick={submitComment} 
+                disabled={!newCommentText.trim() || sendingComment} 
+                className="absolute right-1 top-1 p-1.5 text-blue-600 hover:bg-blue-100 rounded-full disabled:opacity-50"
+              >
+                {sendingComment ? <Loader2 size={14} className="animate-spin"/> : <Send size={14} />}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+};
 
 // --- VISTA FEED PRINCIPAL ---
 const FeedView = ({ user }) => {
@@ -178,9 +440,7 @@ const FeedView = ({ user }) => {
   const [fullScreenMedia, setFullScreenMedia] = useState(null);
   const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
   const [commentsData, setCommentsData] = useState({}); 
-  const [newCommentText, setNewCommentText] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
-  const [sendingComment, setSendingComment] = useState(false); // Estado para loading del comentario
 
   const fetchPosts = async () => {
     const { data: postsData, error } = await supabase
@@ -244,22 +504,6 @@ const FeedView = ({ user }) => {
     if (vidInput) vidInput.value = '';
   };
 
-  const uploadMedia = async () => {
-    if (!mediaFile) return null;
-    try {
-      const fileExt = mediaFile.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
-      const { error } = await supabase.storage.from('posts-files').upload(filePath, mediaFile);
-      if (error) throw error;
-      const { data } = supabase.storage.from('posts-files').getPublicUrl(filePath);
-      return data.publicUrl;
-    } catch (error) {
-      console.error("Error subiendo:", error);
-      return null;
-    }
-  };
-
   const publish = async () => {
     if (!text.trim() && !mediaFile) return;
     setIsUploading(true);
@@ -267,7 +511,7 @@ const FeedView = ({ user }) => {
     let videoUrl = null;
 
     if (mediaFile) {
-      const url = await uploadMedia();
+      const url = await uploadFileToSupabase(mediaFile, user.id);
       if (url) {
         if (mediaType === 'image') imageUrl = url;
         if (mediaType === 'video') videoUrl = url;
@@ -297,16 +541,18 @@ const FeedView = ({ user }) => {
   const handleVote = async (postId, type) => {
     const postIndex = posts.findIndex(p => p.id === postId);
     if (postIndex === -1) return;
+    
     const currentPost = posts[postIndex];
-    const currentVote = currentPost.user_vote;
+    const previousVote = currentPost.user_vote;
     let newVote = type;
-    if (currentVote === type) newVote = null;
+    
+    if (previousVote === type) newVote = null;
 
     const newPosts = [...posts];
     const p = { ...newPosts[postIndex] };
 
-    if (currentVote === 'like') p.likes_count = Math.max(0, p.likes_count - 1);
-    if (currentVote === 'dislike') p.dislikes_count = Math.max(0, p.dislikes_count - 1);
+    if (previousVote === 'like') p.likes_count = Math.max(0, p.likes_count - 1);
+    if (previousVote === 'dislike') p.dislikes_count = Math.max(0, p.dislikes_count - 1);
     if (newVote === 'like') p.likes_count += 1;
     if (newVote === 'dislike') p.dislikes_count += 1;
 
@@ -318,13 +564,47 @@ const FeedView = ({ user }) => {
       if (newVote === null) {
         await supabase.from('post_votes').delete().match({ user_id: user.id, post_id: postId });
       } else {
-        await supabase.from('post_votes').upsert({ user_id: user.id, post_id: postId, vote_type: newVote }, { onConflict: 'user_id, post_id' });
+        await supabase.from('post_votes').upsert(
+          { user_id: user.id, post_id: postId, vote_type: newVote },
+          { onConflict: 'user_id, post_id' }
+        );
       }
-    } catch (err) { fetchPosts(); }
+    } catch (err) {
+      console.error("Error al guardar voto:", err);
+      fetchPosts();
+    }
   };
 
+  // --- NUEVAS FUNCIONES DE POST: BORRAR Y EDITAR ---
+  const handleDeletePost = async (postId) => {
+    // 1. UI Optimista
+    setPosts(prev => prev.filter(p => p.id !== postId));
+    // 2. DB
+    const { error } = await supabase.from('posts').delete().eq('id', postId);
+    if (error) {
+      alert("No se pudo eliminar el post.");
+      fetchPosts(); // Revertir
+    }
+  };
+
+  const handleUpdatePost = async (postId, content, imageUrl, videoUrl) => {
+     // 1. UI Optimista (parcial)
+     setPosts(prev => prev.map(p => p.id === postId ? { ...p, content, image_url: imageUrl, video_url: videoUrl } : p));
+     
+     // 2. DB
+     const { error } = await supabase
+       .from('posts')
+       .update({ content, image_url: imageUrl, video_url: videoUrl })
+       .eq('id', postId);
+
+     if (error) {
+       alert("Error al actualizar.");
+       fetchPosts();
+     }
+  };
+
+  // --- LÓGICA COMENTARIOS ---
   const toggleComments = (postId) => {
-    setNewCommentText(''); // Limpiar el input al cambiar de post
     if (activeCommentsPostId === postId) setActiveCommentsPostId(null);
     else {
       setActiveCommentsPostId(postId);
@@ -345,45 +625,43 @@ const FeedView = ({ user }) => {
     setLoadingComments(false);
   };
 
-  const submitComment = async (postId) => {
-    if (!newCommentText.trim()) return;
-    setSendingComment(true);
-
-    const { error } = await supabase.from('post_comments').insert({ 
-      post_id: postId, 
-      user_id: user.id, 
-      content: newCommentText 
-    });
-
-    setSendingComment(false);
-
-    if (!error) {
-      setNewCommentText('');
-      fetchComments(postId);
-      setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p));
-    } else {
-      console.error(error);
-      alert(`No se pudo enviar el comentario. Detalles: ${error.message || 'Error desconocido'}`);
-    }
-  };
-
-  const handleDeleteComment = async (commentId, postId) => {
-    if(!window.confirm("¿Eliminar comentario?")) return;
-    const { error } = await supabase.from('post_comments').delete().eq('id', commentId);
-    if (!error) {
-      setCommentsData(prev => ({ ...prev, [postId]: prev[postId].filter(c => c.id !== commentId) }));
-      setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) } : p));
-    } else {
-      alert("No se pudo eliminar.");
-    }
-  };
-
-  const handleEditComment = async (commentId, postId, newContent) => {
-    const { error } = await supabase.from('post_comments').update({ content: newContent }).eq('id', commentId);
-    if (!error) {
-      setCommentsData(prev => ({ ...prev, [postId]: prev[postId].map(c => c.id === commentId ? { ...c, content: newContent } : c) }));
-    } else {
-      alert("No se pudo editar.");
+  const commentActions = {
+    add: async (postId, content) => {
+      const { error } = await supabase.from('post_comments').insert({ post_id: postId, user_id: user.id, content });
+      if (!error) {
+        fetchComments(postId);
+        setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p));
+      }
+    },
+    delete: async (commentId) => {
+      if(!window.confirm("¿Eliminar comentario?")) return;
+      const { error } = await supabase.from('post_comments').delete().eq('id', commentId);
+      if (!error) {
+        setCommentsData(prev => {
+          const newState = { ...prev };
+          // Encontrar de qué post es para restar el contador (un poco hacky sin postId directo, pero funcional)
+          for(const pid in newState) {
+             if(newState[pid].find(c => c.id === commentId)) {
+                newState[pid] = newState[pid].filter(c => c.id !== commentId);
+                setPosts(curr => curr.map(p => String(p.id) === String(pid) ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) } : p));
+             }
+          }
+          return newState;
+        });
+      }
+    },
+    edit: async (commentId, content) => {
+      const { error } = await supabase.from('post_comments').update({ content }).eq('id', commentId);
+      if (!error) {
+        // Actualizar UI localmente buscando el comentario en todos los arrays cargados
+        setCommentsData(prev => {
+           const newState = { ...prev };
+           for(const pid in newState) {
+             newState[pid] = newState[pid].map(c => c.id === commentId ? { ...c, content } : c);
+           }
+           return newState;
+        });
+      }
     }
   };
 
@@ -412,7 +690,6 @@ const FeedView = ({ user }) => {
                 )}
               </div>
             )}
-            {/* BARRA DE HERRAMIENTAS RESPONSIVA */}
             <div className="flex flex-wrap justify-between items-center mt-2 gap-y-2">
               <div className="flex gap-1 text-blue-600">
                 <input type="file" id="image-upload" accept="image/*" className="hidden" onChange={(e) => handleFileSelect(e, 'image')}/>
@@ -434,94 +711,20 @@ const FeedView = ({ user }) => {
       {loading ? (
         <div className="flex justify-center p-4"><Loader2 className="animate-spin text-blue-600"/></div>
       ) : posts.map((post) => (
-        <Card key={post.id} className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-          <div className="flex gap-3 mb-2 items-start">
-            <Avatar initials={post.profiles?.avatar_initials || '??'} src={post.profiles?.avatar_url} />
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-start">
-                <div className="truncate pr-2">
-                   <h4 className="font-bold text-sm text-gray-900 dark:text-white truncate">{post.profiles?.full_name || 'Usuario'}</h4>
-                   <span className="text-[10px] text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900 px-2 py-0.5 rounded-full inline-block mt-0.5">
-                     {post.profiles?.role || 'Miembro'}
-                   </span>
-                </div>
-                <button className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 shrink-0">
-                  <MoreHorizontal size={18} />
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          {post.content && (
-            <p className="text-gray-800 dark:text-gray-200 text-sm mb-3 whitespace-pre-wrap leading-relaxed break-words">{post.content}</p>
-          )}
-          
-          {post.image_url && (
-            <div className="cursor-pointer overflow-hidden rounded-lg border border-gray-100 dark:border-slate-700 mb-3" onClick={() => setFullScreenMedia({ url: post.image_url, type: 'image' })}>
-              <img src={post.image_url} alt="Post content" className="w-full object-cover max-h-96 hover:scale-[1.01] transition-transform duration-300" />
-            </div>
-          )}
-          {post.video_url && (
-            <div className="relative mb-3 group" onClick={() => setFullScreenMedia({ url: post.video_url, type: 'video' })}>
-               <video src={post.video_url} className="w-full rounded-lg bg-black max-h-96 border border-gray-100 dark:border-slate-700" />
-               <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition-colors cursor-pointer"><div className="bg-white/90 p-3 rounded-full shadow-lg"><Video size={24} className="text-blue-900 ml-1" /></div></div>
-            </div>
-          )}
-
-          <div className="flex justify-between border-t dark:border-slate-700 pt-3 mt-1 px-1">
-            <div className="flex gap-4 sm:gap-6">
-              <button onClick={() => handleVote(post.id, 'like')} className={`flex items-center gap-1.5 text-sm transition-colors ${post.user_vote === 'like' ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
-                <ThumbsUp size={18} className={post.user_vote === 'like' ? 'fill-blue-100' : ''} /> <span>{post.likes_count || 0}</span>
-              </button>
-              <button onClick={() => handleVote(post.id, 'dislike')} className={`flex items-center gap-1.5 text-sm transition-colors ${post.user_vote === 'dislike' ? 'text-red-500 font-bold' : 'text-gray-500'}`}>
-                <ThumbsDown size={18} className={post.user_vote === 'dislike' ? 'fill-red-100' : ''} /> <span>{post.dislikes_count || 0}</span>
-              </button>
-            </div>
-            <div className="flex gap-4 sm:gap-6">
-              <button onClick={() => toggleComments(post.id)} className={`flex items-center gap-1.5 text-sm transition-colors ${activeCommentsPostId === post.id ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
-                <MessageSquare size={18} /> <span>{post.comments_count || 0}</span>
-              </button>
-              <button className="text-gray-500 hover:text-blue-600"><Share2 size={18} /></button>
-            </div>
-          </div>
-
-          {activeCommentsPostId === post.id && (
-            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-slate-700 animate-in slide-in-from-top-2">
-              <div className="space-y-3 mb-4 pr-1">
-                {loadingComments && !commentsData[post.id] ? (
-                  <div className="text-center py-2 text-gray-400 text-xs">Cargando...</div>
-                ) : (
-                  commentsData[post.id]?.length > 0 ? (
-                    commentsData[post.id].map(comment => (
-                      <CommentItem key={comment.id} comment={comment} user={user} onDelete={(id) => handleDeleteComment(id, post.id)} onEdit={(id, content) => handleEditComment(id, post.id, content)} />
-                    ))
-                  ) : <p className="text-center text-xs text-gray-400 italic py-2">Sé el primero en comentar.</p>
-                )}
-              </div>
-              <div className="flex gap-2 items-center">
-                <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="hidden sm:flex" />
-                <div className="flex-1 relative">
-                  <input 
-                    type="text" 
-                    value={newCommentText} 
-                    onChange={(e) => setNewCommentText(e.target.value)} 
-                    placeholder="Escribe un comentario..." 
-                    disabled={sendingComment}
-                    className="w-full text-sm py-2 pl-3 pr-10 rounded-full bg-gray-100 dark:bg-slate-900 border-none focus:ring-1 focus:ring-blue-500 dark:text-white disabled:opacity-50" 
-                    onKeyDown={(e) => e.key === 'Enter' && !sendingComment && submitComment(post.id)} 
-                  />
-                  <button 
-                    onClick={() => submitComment(post.id)} 
-                    disabled={!newCommentText.trim() || sendingComment} 
-                    className="absolute right-1 top-1 p-1.5 text-blue-600 hover:bg-blue-100 rounded-full disabled:opacity-50"
-                  >
-                    {sendingComment ? <Loader2 size={14} className="animate-spin"/> : <Send size={14} />}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </Card>
+        <PostItem 
+          key={post.id}
+          post={post}
+          user={user}
+          onVote={handleVote}
+          onDelete={handleDeletePost}
+          onUpdate={handleUpdatePost}
+          onToggleComments={() => toggleComments(post.id)}
+          showComments={activeCommentsPostId === post.id}
+          comments={commentsData[post.id]}
+          loadingComments={loadingComments}
+          onCommentAction={commentActions}
+          setFullScreenMedia={setFullScreenMedia}
+        />
       ))}
     </div>
   );
