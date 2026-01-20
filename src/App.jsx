@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy,         
-  MapPin, Wrench, ThumbsUp, ThumbsDown, MessageSquare, Share2, Settings,
+  Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy,
+  MapPin, ThumbsUp, ThumbsDown, MessageSquare, Share2, Settings,
   Moon, Sun, Loader2, Image, Video, X, Send, MoreHorizontal,
-  Edit2, Trash2, MoreVertical, Check
+  Edit2, Trash2, ChevronLeft, ChevronRight, Layers
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -12,6 +12,10 @@ import LoginScreen from './components/LoginScreen';
 import Avatar from './components/ui/Avatar';
 import Button from './components/ui/Button';
 import Card from './components/ui/Card';
+
+// --- IMPORTACIONES DE COMENTARIOS ---
+import CommentItem from './components/feed/CommentItem';
+import { useComments } from './hooks/useComments';
 
 // --- DATOS MOCK ---
 import { JOBS_DATA } from './data/mockData';
@@ -27,160 +31,184 @@ const uploadFileToSupabase = async (file, userId) => {
   if (!file) return null;
   try {
     const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}/${Date.now()}.${fileExt}`;
+    // Generamos un nombre único para evitar colisiones
+    const fileName = `${userId}/${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+    
+    // Subir
     const { error } = await supabase.storage.from('posts-files').upload(fileName, file);
     if (error) throw error;
+    
+    // Obtener URL pública
     const { data } = supabase.storage.from('posts-files').getPublicUrl(fileName);
     return data.publicUrl;
   } catch (error) {
     console.error("Error subiendo archivo:", error);
-    alert("Error al subir archivo. Intenta de nuevo.");
     return null;
   }
 };
 
-// --- COMPONENTE LIGHTBOX (PANTALLA COMPLETA) ---
-const MediaModal = ({ media, onClose }) => {
-  if (!media) return null;
+// --- COMPONENTE POST DETAIL MODAL (LIGHTBOX + COMENTARIOS) ---
+const PostDetailModal = ({ post, onClose, user, commentsData, commentActions, fetchComments }) => {
+  const [newComment, setNewComment] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
+  const scrollRef = useRef(null);
+
+  // Normalizar media: Usar la nueva columna 'media' o las legacy 'image_url'/'video_url'
+  const mediaList = post?.media?.length > 0 
+    ? post.media 
+    : (post?.image_url ? [{ type: 'image', url: post.image_url }] : (post?.video_url ? [{ type: 'video', url: post.video_url }] : []));
+
+  useEffect(() => {
+    if (post && fetchComments) {
+      fetchComments(post.id);
+    }
+  }, [post]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [commentsData]);
+
+  if (!post) return null;
+
+  const handleSend = async () => {
+    if (!newComment.trim()) return;
+    setIsSending(true);
+    await commentActions.add(post.id, newComment);
+    setNewComment('');
+    setIsSending(false);
+  };
+
+  const handleNext = (e) => {
+    e.stopPropagation();
+    if (mediaList.length > 0) {
+      setCurrentMediaIndex((prev) => (prev + 1) % mediaList.length);
+    }
+  };
+
+  const handlePrev = (e) => {
+    e.stopPropagation();
+    if (mediaList.length > 0) {
+      setCurrentMediaIndex((prev) => (prev - 1 + mediaList.length) % mediaList.length);
+    }
+  };
+
+  const currentMedia = mediaList[currentMediaIndex];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-0 md:p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+      
       <button 
         onClick={onClose}
-        className="absolute top-4 right-4 p-2 bg-gray-800/50 text-white rounded-full hover:bg-red-600 transition-colors z-50"
+        className="absolute top-4 right-4 p-2 bg-gray-800/50 text-white rounded-full hover:bg-red-600 transition-colors z-[60]"
       >
         <X size={24} />
       </button>
-      
-      <div className="relative max-w-7xl max-h-screen w-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
-        {media.type === 'video' ? (
-          <video 
-            src={media.url} 
-            controls 
-            autoPlay 
-            className="max-h-[85vh] max-w-full rounded shadow-2xl outline-none"
-          />
-        ) : (
-          <img 
-            src={media.url} 
-            alt="Full view" 
-            className="max-h-[85vh] max-w-full object-contain rounded shadow-2xl" 
-          />
-        )}
-      </div>
-    </div>
-  );
-};
 
-// --- COMPONENTE DE COMENTARIO INDIVIDUAL ---
-const CommentItem = ({ comment, user, onDelete, onEdit }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(comment.content);
-  const [showMenu, setShowMenu] = useState(false);
-  const menuRef = useRef(null);
+      <div 
+        className="relative w-full max-w-6xl h-full md:h-[85vh] bg-white dark:bg-slate-900 rounded-none md:rounded-xl overflow-hidden flex flex-col md:grid md:grid-cols-[1fr_350px] shadow-2xl" 
+        onClick={e => e.stopPropagation()}
+      >
+        
+        {/* LADO IZQUIERDO: MEDIA (CARRUSEL) */}
+        <div className="flex items-center justify-center bg-black h-[40vh] md:h-full relative group">
+           {currentMedia ? (
+             currentMedia.type === 'video' ? (
+               <video src={currentMedia.url} controls autoPlay className="max-h-full max-w-full outline-none" />
+             ) : (
+               <img src={currentMedia.url} alt="Post detail" className="max-h-full max-w-full object-contain" />
+             )
+           ) : (
+             <div className="text-gray-500">Contenido no disponible</div>
+           )}
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setShowMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+           {/* Flechas de navegación si hay más de 1 archivo */}
+           {mediaList.length > 1 && (
+             <>
+               <button onClick={handlePrev} className="absolute left-4 p-2 bg-black/50 text-white rounded-full hover:bg-white/20 transition-colors z-10">
+                 <ChevronLeft size={24} />
+               </button>
+               <button onClick={handleNext} className="absolute right-4 p-2 bg-black/50 text-white rounded-full hover:bg-white/20 transition-colors z-10">
+                 <ChevronRight size={24} />
+               </button>
+               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 px-3 py-1 rounded-full text-xs text-white">
+                 {currentMediaIndex + 1} / {mediaList.length}
+               </div>
+             </>
+           )}
+        </div>
 
-  const handleUpdate = () => {
-    if (editContent.trim() !== comment.content) {
-      onEdit(comment.id, editContent);
-    }
-    setIsEditing(false);
-    setShowMenu(false);
-  };
-
-  const isOwner = user.id === comment.user_id;
-
-  return (
-    <div className="flex gap-2 group relative">
-      <Avatar 
-        initials={comment.profiles?.avatar_initials || 'User'} 
-        src={comment.profiles?.avatar_url}
-        size="sm" 
-      />
-      <div className="flex-1 min-w-0">
-        <div className="bg-gray-50 dark:bg-slate-700/50 p-2 rounded-lg rounded-tl-none relative">
-          <div className="flex justify-between items-start">
-            <span className="text-xs font-bold text-gray-900 dark:text-white mr-2">
-              {comment.profiles?.full_name}
-            </span>
-            
-            {isOwner && !isEditing && (
-              <div className="relative" ref={menuRef}>
-                <button 
-                  onClick={() => setShowMenu(!showMenu)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded transition-opacity"
-                >
-                  <MoreVertical size={14} />
-                </button>
-                
-                {showMenu && (
-                  <div className="absolute right-0 top-6 w-32 bg-white dark:bg-slate-800 shadow-xl rounded-md border border-gray-100 dark:border-slate-600 z-50 overflow-hidden text-xs">
-                    <button 
-                      onClick={() => { setIsEditing(true); setShowMenu(false); }}
-                      className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-blue-600 active:bg-blue-50"
-                    >
-                      <Edit2 size={14} /> Editar
-                    </button>
-                    <button 
-                      onClick={() => onDelete(comment.id)}
-                      className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-red-600 active:bg-red-50"
-                    >
-                      <Trash2 size={14} /> Eliminar
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+        {/* LADO DERECHO: INFO Y COMENTARIOS */}
+        <div className="flex flex-col h-full border-l dark:border-slate-700 relative">
+          
+          <div className="p-4 border-b dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0">
+             <div className="flex items-center gap-2">
+                <Avatar initials={post.profiles?.avatar_initials} src={post.profiles?.avatar_url} size="sm"/>
+                <div>
+                   <h4 className="font-bold text-sm text-gray-900 dark:text-white">{post.profiles?.full_name}</h4>
+                   <p className="text-xs text-gray-500">{post.profiles?.role}</p>
+                </div>
+             </div>
+             {post.content && (
+               <div className="mt-2 text-xs text-gray-700 dark:text-gray-300 max-h-20 overflow-y-auto whitespace-pre-wrap">
+                 {post.content}
+               </div>
+             )}
           </div>
 
-          {isEditing ? (
-            <div className="mt-1">
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className="w-full text-xs p-2 bg-white dark:bg-slate-900 border border-blue-300 rounded focus:outline-none resize-none dark:text-white"
-                rows={2}
-                autoFocus
-              />
-              <div className="flex justify-end gap-2 mt-2">
-                <button 
-                  onClick={() => setIsEditing(false)} 
-                  className="text-xs text-gray-500 hover:underline px-2 py-1"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={handleUpdate} 
-                  className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-                >
-                  Guardar
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
-              {comment.content}
-            </p>
-          )}
-        </div>
-        <div className="text-[10px] text-gray-400 ml-1 mt-0.5">
-          {new Date(comment.created_at).toLocaleDateString()}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-slate-800/50" ref={scrollRef}>
+             {commentsData[post.id]?.length > 0 ? (
+                commentsData[post.id].map(comment => (
+                  <CommentItem 
+                    key={comment.id} 
+                    comment={comment} 
+                    user={user} 
+                    onDelete={commentActions.delete} 
+                    onEdit={commentActions.edit}
+                    onVote={commentActions.vote}
+                  />
+                ))
+             ) : (
+               <div className="text-center text-gray-400 text-xs mt-10">
+                  <MessageSquare size={32} className="mx-auto mb-2 opacity-50"/>
+                  <p>Aún no hay comentarios.</p>
+               </div>
+             )}
+          </div>
+
+          <div className="p-3 bg-white dark:bg-slate-900 border-t dark:border-slate-700 shrink-0">
+             <div className="flex gap-2 items-center">
+                <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="hidden sm:block" />
+                <div className="flex-1 relative">
+                  <input 
+                    type="text" 
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="Escribe un comentario..."
+                    disabled={isSending}
+                    className="w-full text-sm py-2 pl-3 pr-10 rounded-full bg-gray-100 dark:bg-slate-800 border-none focus:ring-1 focus:ring-blue-500 dark:text-white"
+                    onKeyDown={(e) => e.key === 'Enter' && !isSending && handleSend()}
+                  />
+                  <button 
+                    onClick={handleSend}
+                    disabled={!newComment.trim() || isSending}
+                    className="absolute right-1 top-1 p-1.5 text-blue-600 hover:bg-blue-100 rounded-full disabled:opacity-50"
+                  >
+                    {isSending ? <Loader2 size={16} className="animate-spin"/> : <Send size={16} />}
+                  </button>
+                </div>
+             </div>
+          </div>
+
         </div>
       </div>
     </div>
   );
 };
 
-// --- COMPONENTE POST ITEM (Con lógica de edición/borrado) ---
+// --- COMPONENTE POST ITEM ---
 const PostItem = ({ 
   post, 
   user, 
@@ -190,73 +218,34 @@ const PostItem = ({
   onToggleComments, 
   showComments, 
   comments, 
-  loadingComments, 
   onCommentAction,
-  setFullScreenMedia 
+  onOpenDetail 
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(post.content);
   const [showMenu, setShowMenu] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
-  // Estados para edición de media
-  const [editMediaPreview, setEditMediaPreview] = useState(post.image_url || post.video_url || null);
-  const [editMediaType, setEditMediaType] = useState(post.image_url ? 'image' : post.video_url ? 'video' : null);
-  const [newMediaFile, setNewMediaFile] = useState(null);
+  
+  // Normalizar media para visualización
+  const mediaList = post.media?.length > 0 
+    ? post.media 
+    : (post.image_url ? [{ type: 'image', url: post.image_url }] : (post.video_url ? [{ type: 'video', url: post.video_url }] : []));
 
   const [newCommentText, setNewCommentText] = useState('');
   const [sendingComment, setSendingComment] = useState(false);
-  
   const menuRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setShowMenu(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(event.target)) { setShowMenu(false); }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleFileSelect = (e, type) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 50 * 1024 * 1024) {
-      alert("Archivo muy pesado (máx 50MB)");
-      return;
-    }
-    setEditMediaType(type);
-    setNewMediaFile(file);
-    setEditMediaPreview(URL.createObjectURL(file));
-  };
-
-  const clearEditMedia = () => {
-    setNewMediaFile(null);
-    setEditMediaPreview(null);
-    setEditMediaType(null);
-  };
-
   const handleSave = async () => {
     setIsSaving(true);
-    let finalImageUrl = post.image_url;
-    let finalVideoUrl = post.video_url;
-
-    // Si el usuario borró la media que había
-    if (!editMediaPreview) {
-      finalImageUrl = null;
-      finalVideoUrl = null;
-    } 
-    // Si subió un archivo nuevo
-    else if (newMediaFile) {
-      const url = await uploadFileToSupabase(newMediaFile, user.id);
-      if (url) {
-        if (editMediaType === 'image') { finalImageUrl = url; finalVideoUrl = null; }
-        if (editMediaType === 'video') { finalVideoUrl = url; finalImageUrl = null; }
-      }
-    }
-
-    await onUpdate(post.id, editText, finalImageUrl, finalVideoUrl);
+    await onUpdate(post.id, editText, null, null); 
     setIsSaving(false);
     setIsEditing(false);
   };
@@ -271,6 +260,40 @@ const PostItem = ({
 
   const isOwner = user.id === post.user_id;
 
+  // Renderizador de Grilla de Media
+  const renderMediaGrid = () => {
+    if (mediaList.length === 0) return null;
+
+    const count = mediaList.length;
+    let gridClass = "grid-cols-1";
+    if (count === 2) gridClass = "grid-cols-2";
+    if (count >= 3) gridClass = "grid-cols-2";
+
+    return (
+      <div className={`grid ${gridClass} gap-1 rounded-lg overflow-hidden mb-3 border border-gray-100 dark:border-slate-700 cursor-pointer`} onClick={() => onOpenDetail(post)}>
+        {mediaList.slice(0, 4).map((media, idx) => (
+          <div key={idx} className={`relative ${count === 3 && idx === 0 ? 'row-span-2' : ''} h-64 bg-black`}>
+            {media.type === 'video' ? (
+              <>
+                 <video src={media.url} className="w-full h-full object-cover" />
+                 <div className="absolute inset-0 flex items-center justify-center bg-black/20"><Video className="text-white drop-shadow-md" size={32}/></div>
+              </>
+            ) : (
+              <img src={media.url} alt={`Media ${idx}`} className="w-full h-full object-cover" />
+            )}
+            
+            {/* Overlay para "+X" si hay más de 4 */}
+            {idx === 3 && count > 4 && (
+              <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold text-xl">
+                +{count - 4}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500">
       <div className="flex gap-3 mb-2 items-start">
@@ -284,7 +307,6 @@ const PostItem = ({
                </span>
             </div>
             
-            {/* MENÚ DE OPCIONES (EDITAR / BORRAR) */}
             {isOwner && !isEditing && (
               <div className="relative" ref={menuRef}>
                 <button onClick={() => setShowMenu(!showMenu)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 shrink-0">
@@ -292,18 +314,8 @@ const PostItem = ({
                 </button>
                 {showMenu && (
                   <div className="absolute right-0 top-6 w-32 bg-white dark:bg-slate-800 shadow-xl rounded-md border border-gray-100 dark:border-slate-600 z-50 overflow-hidden text-xs">
-                    <button 
-                      onClick={() => { setIsEditing(true); setShowMenu(false); }}
-                      className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-blue-600 active:bg-blue-50"
-                    >
-                      <Edit2 size={14} /> Editar
-                    </button>
-                    <button 
-                      onClick={() => { if(window.confirm('¿Eliminar publicación?')) onDelete(post.id); }}
-                      className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-red-600 active:bg-red-50"
-                    >
-                      <Trash2 size={14} /> Eliminar
-                    </button>
+                    <button onClick={() => { setIsEditing(true); setShowMenu(false); }} className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-blue-600"><Edit2 size={14} /> Editar</button>
+                    <button onClick={() => { if(window.confirm('¿Eliminar publicación?')) onDelete(post.id); }} className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-red-600"><Trash2 size={14} /> Eliminar</button>
                   </div>
                 )}
               </div>
@@ -312,74 +324,32 @@ const PostItem = ({
         </div>
       </div>
       
-      {/* --- MODO EDICIÓN --- */}
       {isEditing ? (
         <div className="mb-3">
-          <textarea
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            className="w-full p-2 text-sm bg-gray-50 dark:bg-slate-900 border border-blue-200 rounded focus:ring-1 focus:ring-blue-500 resize-none dark:text-white mb-2"
-            rows={4}
-          />
-          
-          {/* PREVISUALIZACIÓN MEDIA EN EDICIÓN */}
-          {editMediaPreview && (
-            <div className="relative mb-2 rounded-lg overflow-hidden bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 w-fit">
-              <button onClick={clearEditMedia} className="absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full hover:bg-red-600 z-10"><X size={14} /></button>
-              {editMediaType === 'image' ? (
-                <img src={editMediaPreview} alt="Preview" className="h-32 object-cover" />
-              ) : (
-                <video src={editMediaPreview} className="h-32 bg-black" />
-              )}
-            </div>
-          )}
-
-          {/* BOTONES DE EDICIÓN */}
-          <div className="flex justify-between items-center mt-2">
-            <div className="flex gap-2">
-               <label className="cursor-pointer p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Image size={18} /><input type="file" accept="image/*" className="hidden" onChange={(e)=>handleFileSelect(e,'image')}/></label>
-               <label className="cursor-pointer p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Video size={18} /><input type="file" accept="video/*" className="hidden" onChange={(e)=>handleFileSelect(e,'video')}/></label>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => { setIsEditing(false); setEditText(post.content); setEditMediaPreview(post.image_url || post.video_url); }} className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded">Cancelar</button>
-              <Button onClick={handleSave} disabled={isSaving} className="text-xs px-4 py-1.5 rounded h-auto">
-                 {isSaving ? <Loader2 className="animate-spin" size={14}/> : 'Guardar Cambios'}
-              </Button>
-            </div>
+          <textarea value={editText} onChange={(e) => setEditText(e.target.value)} className="w-full p-2 text-sm bg-gray-50 dark:bg-slate-900 border border-blue-200 rounded resize-none dark:text-white mb-2" rows={4} />
+          <div className="flex justify-end gap-2">
+              <button onClick={() => { setIsEditing(false); setEditText(post.content); }} className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded">Cancelar</button>
+              <Button onClick={handleSave} disabled={isSaving} className="text-xs px-4 py-1.5 rounded h-auto">{isSaving ? <Loader2 className="animate-spin" size={14}/> : 'Guardar'}</Button>
           </div>
         </div>
       ) : (
-        /* --- MODO VISUALIZACIÓN --- */
         <>
-          {post.content && (
-            <p className="text-gray-800 dark:text-gray-200 text-sm mb-3 whitespace-pre-wrap leading-relaxed break-words">{post.content}</p>
-          )}
-          
-          {post.image_url && (
-            <div className="cursor-pointer overflow-hidden rounded-lg border border-gray-100 dark:border-slate-700 mb-3" onClick={() => setFullScreenMedia({ url: post.image_url, type: 'image' })}>
-              <img src={post.image_url} alt="Post content" className="w-full object-cover max-h-96 hover:scale-[1.01] transition-transform duration-300" />
-            </div>
-          )}
-          {post.video_url && (
-            <div className="relative mb-3 group" onClick={() => setFullScreenMedia({ url: post.video_url, type: 'video' })}>
-               <video src={post.video_url} className="w-full rounded-lg bg-black max-h-96 border border-gray-100 dark:border-slate-700" />
-               <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition-colors cursor-pointer"><div className="bg-white/90 p-3 rounded-full shadow-lg"><Video size={24} className="text-blue-900 ml-1" /></div></div>
-            </div>
-          )}
+          {post.content && <p className="text-gray-800 dark:text-gray-200 text-sm mb-3 whitespace-pre-wrap">{post.content}</p>}
+          {renderMediaGrid()}
         </>
       )}
 
       <div className="flex justify-between border-t dark:border-slate-700 pt-3 mt-1 px-1">
-        <div className="flex gap-4 sm:gap-6">
-          <button onClick={() => onVote(post.id, 'like')} className={`flex items-center gap-1.5 text-sm transition-colors ${post.user_vote === 'like' ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
+        <div className="flex gap-4">
+          <button onClick={() => onVote(post.id, 'like')} className={`flex items-center gap-1.5 text-sm ${post.user_vote === 'like' ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
             <ThumbsUp size={18} className={post.user_vote === 'like' ? 'fill-blue-100' : ''} /> <span>{post.likes_count || 0}</span>
           </button>
-          <button onClick={() => onVote(post.id, 'dislike')} className={`flex items-center gap-1.5 text-sm transition-colors ${post.user_vote === 'dislike' ? 'text-red-500 font-bold' : 'text-gray-500'}`}>
+          <button onClick={() => onVote(post.id, 'dislike')} className={`flex items-center gap-1.5 text-sm ${post.user_vote === 'dislike' ? 'text-red-500 font-bold' : 'text-gray-500'}`}>
             <ThumbsDown size={18} className={post.user_vote === 'dislike' ? 'fill-red-100' : ''} /> <span>{post.dislikes_count || 0}</span>
           </button>
         </div>
-        <div className="flex gap-4 sm:gap-6">
-          <button onClick={onToggleComments} className={`flex items-center gap-1.5 text-sm transition-colors ${showComments ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
+        <div className="flex gap-4">
+          <button onClick={onToggleComments} className={`flex items-center gap-1.5 text-sm ${showComments ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
             <MessageSquare size={18} /> <span>{post.comments_count || 0}</span>
           </button>
           <button className="text-gray-500 hover:text-blue-600"><Share2 size={18} /></button>
@@ -389,15 +359,11 @@ const PostItem = ({
       {showComments && (
         <div className="mt-3 pt-3 border-t border-gray-100 dark:border-slate-700 animate-in slide-in-from-top-2">
           <div className="space-y-3 mb-4 pr-1">
-            {loadingComments && !comments ? (
-              <div className="text-center py-2 text-gray-400 text-xs">Cargando...</div>
-            ) : (
-              comments?.length > 0 ? (
+              {comments?.length > 0 ? (
                 comments.map(comment => (
-                  <CommentItem key={comment.id} comment={comment} user={user} onDelete={onCommentAction.delete} onEdit={onCommentAction.edit} />
+                  <CommentItem key={comment.id} comment={comment} user={user} onDelete={onCommentAction.delete} onEdit={onCommentAction.edit} onVote={onCommentAction.vote} />
                 ))
-              ) : <p className="text-center text-xs text-gray-400 italic py-2">Sé el primero en comentar.</p>
-            )}
+              ) : <p className="text-center text-xs text-gray-400 italic py-2">Sé el primero en comentar.</p>}
           </div>
           <div className="flex gap-2 items-center">
             <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="hidden sm:flex" />
@@ -408,14 +374,10 @@ const PostItem = ({
                 onChange={(e) => setNewCommentText(e.target.value)} 
                 placeholder="Escribe un comentario..." 
                 disabled={sendingComment}
-                className="w-full text-sm py-2 pl-3 pr-10 rounded-full bg-gray-100 dark:bg-slate-900 border-none focus:ring-1 focus:ring-blue-500 dark:text-white disabled:opacity-50" 
+                className="w-full text-sm py-2 pl-3 pr-10 rounded-full bg-gray-100 dark:bg-slate-900 border-none focus:ring-1 focus:ring-blue-500 dark:text-white" 
                 onKeyDown={(e) => e.key === 'Enter' && !sendingComment && submitComment()} 
               />
-              <button 
-                onClick={submitComment} 
-                disabled={!newCommentText.trim() || sendingComment} 
-                className="absolute right-1 top-1 p-1.5 text-blue-600 hover:bg-blue-100 rounded-full disabled:opacity-50"
-              >
+              <button onClick={submitComment} disabled={!newCommentText.trim() || sendingComment} className="absolute right-1 top-1 p-1.5 text-blue-600 hover:bg-blue-100 rounded-full disabled:opacity-50">
                 {sendingComment ? <Loader2 size={14} className="animate-spin"/> : <Send size={14} />}
               </button>
             </div>
@@ -432,33 +394,31 @@ const FeedView = ({ user }) => {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
   
-  const [mediaFile, setMediaFile] = useState(null);
-  const [mediaPreview, setMediaPreview] = useState(null);
-  const [mediaType, setMediaType] = useState(null);
+  // NUEVO: Estado para múltiples archivos
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [previews, setPreviews] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+  
+  const [fullScreenPost, setFullScreenPost] = useState(null);
 
-  const [fullScreenMedia, setFullScreenMedia] = useState(null);
-  const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
-  const [commentsData, setCommentsData] = useState({}); 
-  const [loadingComments, setLoadingComments] = useState(false);
+  const { 
+    activeCommentsPostId, 
+    commentsData, 
+    toggleComments, 
+    fetchComments,
+    commentActions 
+  } = useComments(setPosts, user);
 
   const fetchPosts = async () => {
+    // Seleccionamos la columna 'media' también
     const { data: postsData, error } = await supabase
       .from('posts')
       .select(`*, profiles (full_name, role, avatar_initials, avatar_url)`)
       .order('created_at', { ascending: false });
 
-    if (error) { 
-      console.error("Error cargando posts:", error);
-      setLoading(false); 
-      return; 
-    }
+    if (error) { setLoading(false); return; }
 
-    const { data: userVotes } = await supabase
-      .from('post_votes')
-      .select('post_id, vote_type')
-      .eq('user_id', user.id);
-
+    const { data: userVotes } = await supabase.from('post_votes').select('post_id, vote_type').eq('user_id', user.id);
     const voteMap = {};
     if (userVotes) userVotes.forEach(v => voteMap[v.post_id] = v.vote_type);
 
@@ -475,232 +435,173 @@ const FeedView = ({ user }) => {
 
   useEffect(() => {
     fetchPosts();
-    const channel = supabase
-      .channel('public:posts')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchPosts())
-      .subscribe();
+    const channel = supabase.channel('public:posts').on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchPosts()).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const handleFileSelect = (e, type) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 50 * 1024 * 1024) {
-      alert("El archivo es demasiado grande (máx 50MB)");
-      return;
-    }
-    setMediaType(type);
-    setMediaFile(file);
-    setMediaPreview(URL.createObjectURL(file));
+  // Manejador de selección múltiple
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    // Agregar a la lista existente
+    setSelectedFiles(prev => [...prev, ...files]);
+
+    // Generar previews
+    const newPreviews = files.map(file => ({
+      url: URL.createObjectURL(file),
+      type: file.type.startsWith('image/') ? 'image' : 'video',
+      name: file.name
+    }));
+    setPreviews(prev => [...prev, ...newPreviews]);
   };
 
-  const clearMedia = () => {
-    setMediaFile(null);
-    setMediaPreview(null);
-    setMediaType(null);
-    const imgInput = document.getElementById('image-upload');
-    const vidInput = document.getElementById('video-upload');
-    if (imgInput) imgInput.value = '';
-    if (vidInput) vidInput.value = '';
+  const removeFile = (index) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviews(prev => prev.filter((_, i) => i !== index));
   };
 
+  // --- FUNCIÓN PUBLISH ROBUSTA CON LOGS ---
   const publish = async () => {
-    if (!text.trim() && !mediaFile) return;
+    if (!text.trim() && selectedFiles.length === 0) return;
     setIsUploading(true);
-    let imageUrl = null;
-    let videoUrl = null;
+    console.log("Iniciando publicación..."); 
 
-    if (mediaFile) {
-      const url = await uploadFileToSupabase(mediaFile, user.id);
-      if (url) {
-        if (mediaType === 'image') imageUrl = url;
-        if (mediaType === 'video') videoUrl = url;
-      } else {
-        setIsUploading(false);
-        return;
+    try {
+      const uploadedMedia = [];
+      
+      // 1. Intentar subir archivos
+      if (selectedFiles.length > 0) {
+        console.log(`Subiendo ${selectedFiles.length} archivos...`);
+        for (const file of selectedFiles) {
+          const url = await uploadFileToSupabase(file, user.id);
+          if (url) {
+            uploadedMedia.push({
+              type: file.type.startsWith('image/') ? 'image' : 'video',
+              url: url
+            });
+          } else {
+            console.error("Falló la subida de un archivo. Verifica permisos de Bucket.");
+          }
+        }
       }
-    }
 
-    const { error } = await supabase.from('posts').insert([{ 
-      user_id: user.id, 
-      content: text,
-      image_url: imageUrl,
-      video_url: videoUrl
-    }]);
-    
-    setIsUploading(false);
-    if (!error) { 
+      // 2. Intentar guardar en DB
+      console.log("Guardando post...", { content: text, media: uploadedMedia });
+      const { error } = await supabase.from('posts').insert([{ 
+        user_id: user.id, 
+        content: text, 
+        media: uploadedMedia 
+      }]);
+
+      if (error) {
+        console.error("Error Supabase:", error);
+        throw error;
+      }
+
+      // 3. Éxito
       setText(''); 
-      clearMedia();
+      setSelectedFiles([]); 
+      setPreviews([]);
       fetchPosts(); 
-    } else {
-      alert("Error al publicar. Intenta de nuevo.");
+      console.log("Publicado con éxito");
+
+    } catch (err) {
+      console.error("ERROR EN PUBLISH:", err);
+      alert(`Error al publicar: ${err.message || 'Ver consola'}. Posible falta de columna 'media' en DB.`);
+    } finally {
+      setIsUploading(false);
     }
   };
 
+  // Funciones de voto y eliminado
   const handleVote = async (postId, type) => {
     const postIndex = posts.findIndex(p => p.id === postId);
     if (postIndex === -1) return;
-    
     const currentPost = posts[postIndex];
     const previousVote = currentPost.user_vote;
     let newVote = type;
-    
     if (previousVote === type) newVote = null;
 
     const newPosts = [...posts];
     const p = { ...newPosts[postIndex] };
-
     if (previousVote === 'like') p.likes_count = Math.max(0, p.likes_count - 1);
     if (previousVote === 'dislike') p.dislikes_count = Math.max(0, p.dislikes_count - 1);
     if (newVote === 'like') p.likes_count += 1;
     if (newVote === 'dislike') p.dislikes_count += 1;
-
     p.user_vote = newVote;
     newPosts[postIndex] = p;
     setPosts(newPosts);
 
     try {
-      if (newVote === null) {
-        await supabase.from('post_votes').delete().match({ user_id: user.id, post_id: postId });
-      } else {
-        await supabase.from('post_votes').upsert(
-          { user_id: user.id, post_id: postId, vote_type: newVote },
-          { onConflict: 'user_id, post_id' }
-        );
-      }
-    } catch (err) {
-      console.error("Error al guardar voto:", err);
-      fetchPosts();
-    }
+      if (newVote === null) await supabase.from('post_votes').delete().match({ user_id: user.id, post_id: postId });
+      else await supabase.from('post_votes').upsert({ user_id: user.id, post_id: postId, vote_type: newVote }, { onConflict: 'user_id, post_id' });
+    } catch (err) { console.error(err); fetchPosts(); }
   };
 
-  // --- NUEVAS FUNCIONES DE POST: BORRAR Y EDITAR ---
   const handleDeletePost = async (postId) => {
-    // 1. UI Optimista
     setPosts(prev => prev.filter(p => p.id !== postId));
-    // 2. DB
-    const { error } = await supabase.from('posts').delete().eq('id', postId);
-    if (error) {
-      alert("No se pudo eliminar el post.");
-      fetchPosts(); // Revertir
-    }
+    await supabase.from('posts').delete().eq('id', postId);
   };
 
-  const handleUpdatePost = async (postId, content, imageUrl, videoUrl) => {
-     // 1. UI Optimista (parcial)
-     setPosts(prev => prev.map(p => p.id === postId ? { ...p, content, image_url: imageUrl, video_url: videoUrl } : p));
-     
-     // 2. DB
-     const { error } = await supabase
-       .from('posts')
-       .update({ content, image_url: imageUrl, video_url: videoUrl })
-       .eq('id', postId);
-
-     if (error) {
-       alert("Error al actualizar.");
-       fetchPosts();
-     }
-  };
-
-  // --- LÓGICA COMENTARIOS ---
-  const toggleComments = (postId) => {
-    if (activeCommentsPostId === postId) setActiveCommentsPostId(null);
-    else {
-      setActiveCommentsPostId(postId);
-      if (!commentsData[postId]) fetchComments(postId);
-    }
-  };
-
-  const fetchComments = async (postId) => {
-    setLoadingComments(true);
-    const { data, error } = await supabase
-      .from('post_comments')
-      .select(`*, profiles (full_name, avatar_initials, avatar_url)`)
-      .eq('post_id', postId)
-      .order('created_at', { ascending: true });
-    
-    if (error) console.error("Error trayendo comentarios:", error);
-    if (data) setCommentsData(prev => ({ ...prev, [postId]: data }));
-    setLoadingComments(false);
-  };
-
-  const commentActions = {
-    add: async (postId, content) => {
-      const { error } = await supabase.from('post_comments').insert({ post_id: postId, user_id: user.id, content });
-      if (!error) {
-        fetchComments(postId);
-        setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p));
-      }
-    },
-    delete: async (commentId) => {
-      if(!window.confirm("¿Eliminar comentario?")) return;
-      const { error } = await supabase.from('post_comments').delete().eq('id', commentId);
-      if (!error) {
-        setCommentsData(prev => {
-          const newState = { ...prev };
-          // Encontrar de qué post es para restar el contador (un poco hacky sin postId directo, pero funcional)
-          for(const pid in newState) {
-             if(newState[pid].find(c => c.id === commentId)) {
-                newState[pid] = newState[pid].filter(c => c.id !== commentId);
-                setPosts(curr => curr.map(p => String(p.id) === String(pid) ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) } : p));
-             }
-          }
-          return newState;
-        });
-      }
-    },
-    edit: async (commentId, content) => {
-      const { error } = await supabase.from('post_comments').update({ content }).eq('id', commentId);
-      if (!error) {
-        // Actualizar UI localmente buscando el comentario en todos los arrays cargados
-        setCommentsData(prev => {
-           const newState = { ...prev };
-           for(const pid in newState) {
-             newState[pid] = newState[pid].map(c => c.id === commentId ? { ...c, content } : c);
-           }
-           return newState;
-        });
-      }
-    }
+  const handleUpdatePost = async (postId, content) => {
+     setPosts(prev => prev.map(p => p.id === postId ? { ...p, content } : p));
+     await supabase.from('posts').update({ content }).eq('id', postId);
   };
 
   return (
     <div className="pb-24 pt-4 max-w-2xl mx-auto space-y-4 px-4">
-      <MediaModal media={fullScreenMedia} onClose={() => setFullScreenMedia(null)} />
+      <PostDetailModal 
+        post={fullScreenPost} 
+        onClose={() => setFullScreenPost(null)}
+        user={user}
+        commentsData={commentsData}
+        commentActions={commentActions}
+        fetchComments={fetchComments}
+      />
 
       <Card>
         <div className="flex gap-3">
           <Avatar initials={user.avatar || 'YO'} src={user.avatar_url} />
           <div className="flex-1 min-w-0">
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={`¿Qué cuentas, ${user.name.split(' ')[0]}?`}
-              className="w-full p-2 bg-gray-50 dark:bg-slate-900 rounded border-none focus:ring-1 focus:ring-blue-500 resize-none dark:text-white text-sm"
-              rows={3}
-            />
-            {mediaPreview && (
-              <div className="relative mt-2 rounded-lg overflow-hidden bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 group">
-                <button onClick={clearMedia} className="absolute top-2 right-2 p-1 bg-black/50 text-white rounded-full hover:bg-black/70 z-10"><X size={16} /></button>
-                {mediaType === 'image' ? (
-                  <img src={mediaPreview} alt="Preview" className="w-full h-48 object-cover" />
-                ) : (
-                  <video src={mediaPreview} controls className="w-full h-48 bg-black" />
-                )}
+            <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={`¿Qué cuentas, ${user.name.split(' ')[0]}?`} className="w-full p-2 bg-gray-50 dark:bg-slate-900 rounded border-none focus:ring-1 focus:ring-blue-500 resize-none dark:text-white text-sm" rows={3} />
+            
+            {/* AREA DE PREVISUALIZACIÓN DE ARCHIVOS (GRID) */}
+            {previews.length > 0 && (
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                {previews.map((file, idx) => (
+                  <div key={idx} className="relative shrink-0 w-24 h-24 rounded-lg overflow-hidden bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 group">
+                    <button onClick={() => removeFile(idx)} className="absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full hover:bg-red-600 z-10 transition-colors"><X size={12} /></button>
+                    {file.type === 'image' ? (
+                      <img src={file.url} alt="Preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <video src={file.url} className="w-full h-full bg-black object-cover" />
+                    )}
+                    <div className="absolute bottom-1 right-1 p-1 bg-black/40 rounded text-white">
+                      {file.type === 'video' ? <Video size={10} /> : <Image size={10}/>}
+                    </div>
+                  </div>
+                ))}
+                {/* Botón para añadir más rápido */}
+                 <label className="cursor-pointer shrink-0 w-24 h-24 rounded-lg border-2 border-dashed border-gray-300 dark:border-slate-600 flex flex-col items-center justify-center text-gray-400 hover:border-blue-500 hover:text-blue-500 transition-colors">
+                    <Layers size={20} />
+                    <span className="text-[10px] mt-1">Añadir</span>
+                    <input type="file" multiple accept="image/*,video/*" className="hidden" onChange={handleFileSelect}/>
+                 </label>
               </div>
             )}
-            <div className="flex flex-wrap justify-between items-center mt-2 gap-y-2">
+
+            <div className="flex justify-between items-center mt-2">
               <div className="flex gap-1 text-blue-600">
-                <input type="file" id="image-upload" accept="image/*" className="hidden" onChange={(e) => handleFileSelect(e, 'image')}/>
-                <input type="file" id="video-upload" accept="video/*" className="hidden" onChange={(e) => handleFileSelect(e, 'video')}/>
-                
-                <label htmlFor="image-upload" className="cursor-pointer hover:bg-blue-50 p-2 rounded-full transition-colors"><Image size={20} /></label>
-                <label htmlFor="video-upload" className="cursor-pointer hover:bg-blue-50 p-2 rounded-full transition-colors"><Video size={20} /></label>
-                <div className="w-px h-6 bg-gray-200 mx-1 self-center"></div>
-                <div className="p-2 text-gray-400"><MapPin size={20} /></div>
+                <label className="cursor-pointer p-2 hover:bg-blue-50 rounded-full transition-colors relative" title="Fotos y Videos">
+                   <div className="absolute -top-1 -right-1">
+                      {previews.length > 0 && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold">{previews.length}</span>}
+                   </div>
+                   <Image size={20} />
+                   <input type="file" multiple accept="image/*,video/*" className="hidden" onChange={handleFileSelect}/>
+                </label>
               </div>
-              <Button onClick={publish} disabled={isUploading} className="text-sm px-6 rounded-full w-full sm:w-auto">
+              <Button onClick={publish} disabled={isUploading || (!text && previews.length === 0)} className="text-sm px-6 rounded-full">
                 {isUploading ? <Loader2 className="animate-spin" size={18}/> : 'Publicar'}
               </Button>
             </div>
@@ -721,9 +622,8 @@ const FeedView = ({ user }) => {
           onToggleComments={() => toggleComments(post.id)}
           showComments={activeCommentsPostId === post.id}
           comments={commentsData[post.id]}
-          loadingComments={loadingComments}
           onCommentAction={commentActions}
-          setFullScreenMedia={setFullScreenMedia}
+          onOpenDetail={setFullScreenPost} 
         />
       ))}
     </div>
@@ -780,7 +680,7 @@ function App() {
   return (
     <div className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-gray-100 font-sans min-h-screen transition-colors duration-300">
       
-      {/* Navbar Superior (RESPONSIVE FIX) */}
+      {/* Navbar Superior */}
       <nav className="sticky top-0 z-30 bg-blue-900 text-white shadow-md border-b-4 border-yellow-500">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0">
@@ -823,7 +723,7 @@ function App() {
         {view === 'settings' && <SettingsView isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />}
       </main>
 
-      {/* Navbar Móvil (Fixed Bottom) */}
+      {/* Navbar Móvil */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t dark:border-slate-700 flex justify-around p-2 pb-safe z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
         <NavButton icon={Home} label="Inicio" active={view === 'feed'} onClick={() => setView('feed')} />
         <NavButton icon={Briefcase} label="Empleos" active={view === 'jobs'} onClick={() => setView('jobs')} />
