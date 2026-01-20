@@ -654,7 +654,14 @@ function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('feed');
   const [sessionLoading, setSessionLoading] = useState(true);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+
+  // INICIO CAMBIOS: Inicializar estado leyendo localStorage
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    // Si existe una preferencia guardada, úsala. Si no, default a true (oscuro)
+    const savedTheme = localStorage.getItem('theme');
+    return savedTheme === 'light' ? false : true;
+  });
+  // FIN CAMBIOS
 
   const fetchProfile = async (userId) => {
     try {
@@ -671,7 +678,19 @@ function App() {
   }, []);
 
   const handleProfileRefresh = () => { if (user?.id) fetchProfile(user.id); };
-  useEffect(() => { if (isDarkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }, [isDarkMode]);
+
+  // INICIO CAMBIOS: Guardar preferencia en localStorage y aplicar clase
+  useEffect(() => { 
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    } 
+  }, [isDarkMode]);
+  // FIN CAMBIOS
+
   const handleLogout = async () => { await supabase.auth.signOut(); setUser(null); };
 
   if (sessionLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900"><Loader2 className="animate-spin text-blue-600 w-10 h-10"/></div>;
