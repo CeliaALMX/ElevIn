@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy,         
   MapPin, Wrench, Heart, MessageSquare, Share2, Settings,
-  Moon, Sun, ChevronRight, Shield, HelpCircle, Loader2
+  Moon, Sun, ChevronRight, Shield, HelpCircle, Loader2,
+  Image, Video, X // <--- Iconos agregados para multimedia
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -21,14 +22,19 @@ import SupportView from './components/views/SupportView';
 import NetworkingView from './components/views/NetworkingView';
 import ProfileView from './components/views/ProfileView';
 
-// --- VISTA FEED ---
+// --- VISTA FEED (ACTUALIZADA CON MULTIMEDIA) ---
 const FeedView = ({ user }) => {
   const [posts, setPosts] = useState([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
   
+  // NUEVOS ESTADOS PARA ARCHIVOS
+  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState(null);
+  const [mediaType, setMediaType] = useState(null); // 'image' | 'video'
+  const [isUploading, setIsUploading] = useState(false);
+
   const fetchPosts = async () => {
-    // AHORA TRAEMOS TAMBIÉN EL AVATAR URL DE LOS AUTORES
     const { data, error } = await supabase
       .from('posts')
       .select(`
@@ -50,10 +56,98 @@ const FeedView = ({ user }) => {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
+  // MANEJO DE SELECCIÓN DE ARCHIVOS
+  const handleFileSelect = (e, type) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validación básica de tamaño (ej. 50MB)
+    if (file.size > 50 * 1024 * 1024) {
+      alert("El archivo es demasiado grande (máx 50MB)");
+      return;
+    }
+
+    setMediaType(type);
+    setMediaFile(file);
+    // Crear URL temporal para previsualización
+    setMediaPreview(URL.createObjectURL(file));
+  };
+
+  const clearMedia = () => {
+    setMediaFile(null);
+    setMediaPreview(null);
+    setMediaType(null);
+    // Resetear los inputs file para permitir seleccionar el mismo archivo si es necesario
+    const imgInput = document.getElementById('image-upload');
+    const vidInput = document.getElementById('video-upload');
+    if (imgInput) imgInput.value = '';
+    if (vidInput) vidInput.value = '';
+  };
+
+  // FUNCIÓN PARA SUBIR ARCHIVO A SUPABASE STORAGE
+  const uploadMedia = async () => {
+    if (!mediaFile) return null;
+    try {
+      const fileExt = mediaFile.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`;
+      
+      // Asegúrate de tener un bucket llamado 'posts-files' público en Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('posts-files')
+        .upload(filePath, mediaFile);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from('posts-files')
+        .getPublicUrl(filePath);
+
+      return data.publicUrl;
+    } catch (error) {
+      console.error("Error subiendo archivo:", error);
+      alert("Error al subir archivo. Verifica que el bucket 'posts-files' exista y sea público.");
+      return null;
+    }
+  };
+
   const publish = async () => {
-    if (!text.trim()) return;
-    const { error } = await supabase.from('posts').insert([{ user_id: user.id, content: text }]);
-    if (!error) { setText(''); fetchPosts(); }
+    if (!text.trim() && !mediaFile) return; // Permitir publicar si hay foto/video aunque no haya texto
+    
+    setIsUploading(true);
+    let imageUrl = null;
+    let videoUrl = null;
+
+    if (mediaFile) {
+      const url = await uploadMedia();
+      if (url) {
+        if (mediaType === 'image') imageUrl = url;
+        if (mediaType === 'video') videoUrl = url;
+      } else {
+        // Si falló la subida, detenemos el proceso
+        setIsUploading(false);
+        return;
+      }
+    }
+
+    const newPost = { 
+      user_id: user.id, 
+      content: text,
+      image_url: imageUrl,
+      video_url: videoUrl
+    };
+
+    const { error } = await supabase.from('posts').insert([newPost]);
+    
+    setIsUploading(false);
+    if (!error) { 
+      setText(''); 
+      clearMedia();
+      fetchPosts(); 
+    } else {
+      console.error("Error al publicar:", error);
+      alert("Hubo un error al crear la publicación.");
+    }
   };
 
   return (
@@ -70,12 +164,59 @@ const FeedView = ({ user }) => {
               className="w-full p-2 bg-gray-50 dark:bg-slate-900 rounded border-none focus:ring-1 focus:ring-blue-500 resize-none dark:text-white"
               rows={3}
             />
+            
+            {/* PREVISUALIZACIÓN DE MEDIOS */}
+            {mediaPreview && (
+              <div className="relative mt-2 rounded-lg overflow-hidden bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 group">
+                <button 
+                  onClick={clearMedia}
+                  className="absolute top-2 right-2 p-1 bg-black/50 text-white rounded-full hover:bg-black/70 z-10"
+                >
+                  <X size={16} />
+                </button>
+                {mediaType === 'image' ? (
+                  <img src={mediaPreview} alt="Preview" className="w-full h-48 object-cover" />
+                ) : (
+                  <video src={mediaPreview} controls className="w-full h-48 bg-black" />
+                )}
+              </div>
+            )}
+
             <div className="flex justify-between items-center mt-2">
               <div className="flex gap-2 text-blue-600">
-                <MapPin size={18} className="cursor-pointer hover:text-blue-800"/>
-                <Wrench size={18} className="cursor-pointer hover:text-blue-800"/>
+                {/* Inputs ocultos para archivos */}
+                <input 
+                  type="file" 
+                  id="image-upload" 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={(e) => handleFileSelect(e, 'image')}
+                />
+                <input 
+                  type="file" 
+                  id="video-upload" 
+                  accept="video/*" 
+                  className="hidden" 
+                  onChange={(e) => handleFileSelect(e, 'video')}
+                />
+
+                {/* Botones iconos */}
+                <label htmlFor="image-upload" className="cursor-pointer hover:text-blue-800 hover:bg-blue-50 p-1 rounded transition-colors" title="Subir imagen">
+                  <Image size={20} />
+                </label>
+                <label htmlFor="video-upload" className="cursor-pointer hover:text-blue-800 hover:bg-blue-50 p-1 rounded transition-colors" title="Subir video">
+                  <Video size={20} />
+                </label>
+                
+                <div className="w-px h-5 bg-gray-300 mx-1"></div>
+                
+                <MapPin size={18} className="cursor-pointer hover:text-blue-800 p-1 box-content"/>
+                <Wrench size={18} className="cursor-pointer hover:text-blue-800 p-1 box-content"/>
               </div>
-              <Button onClick={publish} className="text-sm px-6 rounded-full">Publicar</Button>
+              
+              <Button onClick={publish} disabled={isUploading} className="text-sm px-6 rounded-full">
+                {isUploading ? <Loader2 className="animate-spin" size={18}/> : 'Publicar'}
+              </Button>
             </div>
           </div>
         </div>
@@ -98,7 +239,27 @@ const FeedView = ({ user }) => {
               </span>
             </div>
           </div>
-          <p className="text-gray-800 dark:text-gray-200 text-sm mb-3 whitespace-pre-wrap">{post.content}</p>
+          
+          {post.content && (
+            <p className="text-gray-800 dark:text-gray-200 text-sm mb-3 whitespace-pre-wrap">{post.content}</p>
+          )}
+          
+          {/* RENDERIZADO DE IMAGEN O VIDEO SI EXISTEN */}
+          {post.image_url && (
+            <img 
+              src={post.image_url} 
+              alt="Post content" 
+              className="w-full rounded-lg mb-3 object-cover max-h-96 border border-gray-100 dark:border-slate-700"
+            />
+          )}
+          {post.video_url && (
+            <video 
+              src={post.video_url} 
+              controls 
+              className="w-full rounded-lg mb-3 bg-black max-h-96 border border-gray-100 dark:border-slate-700"
+            />
+          )}
+
           <div className="flex justify-between border-t dark:border-slate-700 pt-2">
             <button className="flex items-center gap-1 text-gray-500 hover:text-blue-600 text-sm"><Heart size={16} /> {post.likes_count || 0}</button>
             <button className="flex items-center gap-1 text-gray-500 hover:text-blue-600 text-sm"><MessageSquare size={16} /> {post.comments_count || 0}</button>
@@ -110,7 +271,7 @@ const FeedView = ({ user }) => {
   );
 };
 
-// --- VISTA CONFIGURACIÓN (Sin cambios mayores) ---
+// --- VISTA CONFIGURACIÓN (Sin cambios) ---
 const SettingsView = ({ isDarkMode, toggleTheme }) => (
   <div className="pb-24 pt-4 max-w-2xl mx-auto px-4">
     <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Configuración</h2>
