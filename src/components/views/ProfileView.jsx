@@ -1,84 +1,32 @@
-import React, { useState, useRef } from 'react';
-import { 
-  MapPin, 
-  Briefcase, 
-  Award, 
-  Calendar, 
-  Edit3, 
-  Camera, 
-  Save, 
-  X,
-  ShieldCheck, 
-  Loader2
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { Camera, MapPin, Briefcase, Mail, Phone, Edit2, Check, X, Save, Award, FolderOpen } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { uploadFileToSupabase } from '../../helpers/fileUpload';
+import Card from '../ui/Card';
 import Avatar from '../ui/Avatar';
 import Button from '../ui/Button';
-import Card from '../ui/Card';
-import { supabase } from '../../lib/supabase';
 
 const ProfileView = ({ user, onProfileUpdate }) => {
-  const [isEditing, setIsEditing] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   
-  // Estado local para el formulario
+  // Estado del formulario (Sin experience_years)
   const [formData, setFormData] = useState({
-    full_name: user.name || '',
+    full_name: user.name,
     role: user.role || '',
-    bio: user.bio || '',
+    company: user.company || '',
     location: user.location || '',
-    company: user.company || ''
+    bio: user.bio || '',
+    phone: user.phone || '',
+    email: user.email || '',
+    certifications: user.certifications || '',
+    projects: user.projects || ''
   });
 
-  // Referencias para los inputs de archivos ocultos
-  const avatarInputRef = useRef(null);
-  const coverInputRef = useRef(null);
-
-  // --- MANEJO DE IMÁGENES ---
-  const handleImageUpload = async (event, type) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    setLoading(true);
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/${type}_${Date.now()}.${fileExt}`;
-      const filePath = `${fileName}`;
-
-      // 1. Subir al Bucket 'profiles'
-      const { error: uploadError } = await supabase.storage
-        .from('profiles')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      // 2. Obtener URL pública
-      const { data: { publicUrl } } = supabase.storage
-        .from('profiles')
-        .getPublicUrl(filePath);
-
-      // 3. Actualizar base de datos
-      const updateData = type === 'avatar' ? { avatar_url: publicUrl } : { cover_url: publicUrl };
-      
-      const { error: dbError } = await supabase
-        .from('profiles')
-        .update(updateData)
-        .eq('id', user.id);
-
-      if (dbError) throw dbError;
-
-      // 4. Refrescar datos en App
-      if (onProfileUpdate) onProfileUpdate();
-      alert('Imagen actualizada correctamente');
-
-    } catch (error) {
-      console.error('Error subiendo imagen:', error);
-      alert('Error al subir la imagen.');
-    } finally {
-      setLoading(false);
-    }
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // --- MANEJO DE DATOS DE TEXTO ---
   const handleSave = async () => {
     setLoading(true);
     try {
@@ -87,209 +35,169 @@ const ProfileView = ({ user, onProfileUpdate }) => {
         .update({
           full_name: formData.full_name,
           role: formData.role,
-          bio: formData.bio,
+          company: formData.company,
           location: formData.location,
-          company: formData.company
+          bio: formData.bio,
+          phone: formData.phone,
+          email: formData.email,
+          certifications: formData.certifications,
+          projects: formData.projects
         })
         .eq('id', user.id);
 
       if (error) throw error;
-      
-      setIsEditing(false);
-      if (onProfileUpdate) onProfileUpdate();
-      
+      onProfileUpdate(); 
+      setEditing(false);
     } catch (error) {
-      alert('Error guardando perfil: ' + error.message);
+      alert('Error al guardar perfil: ' + error.message);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleImageUpload = async (e, type) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+        const publicUrl = await uploadFileToSupabase(file, user.id, type === 'cover' ? 'covers' : 'avatars');
+        if (publicUrl) {
+            const field = type === 'cover' ? 'cover_url' : 'avatar_url';
+            await supabase.from('profiles').update({ [field]: publicUrl }).eq('id', user.id);
+            onProfileUpdate();
+        }
+    } catch (error) {
+        console.error("Error upload", error);
+    }
+  };
+
   return (
-    <div className="pb-24 pt-4 max-w-2xl mx-auto space-y-4 px-4">
+    <div className="pb-24 pt-4 space-y-6 max-w-3xl mx-auto px-4">
       
-      {/* --- TARJETA PRINCIPAL --- */}
-      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow border border-gray-100 dark:border-slate-700 relative group">
-        
-        {/* INPUTS OCULTOS DE ARCHIVO */}
-        <input 
-          type="file" 
-          ref={coverInputRef} 
-          className="hidden" 
-          accept="image/*" 
-          onChange={(e) => handleImageUpload(e, 'cover')} 
-        />
-        <input 
-          type="file" 
-          ref={avatarInputRef} 
-          className="hidden" 
-          accept="image/*" 
-          onChange={(e) => handleImageUpload(e, 'avatar')} 
-        />
-
-        {/* PORTADA */}
-        <div className="h-24 bg-gray-200 relative">
-          {user.cover_url ? (
-             <img src={user.cover_url} alt="Portada" className="w-full h-full object-cover" />
-          ) : (
-             <div className="w-full h-full bg-gradient-to-r from-blue-900 to-blue-700"></div>
-          )}
-          
-          {/* Botón editar portada */}
-          <div className="absolute top-4 right-4">
-             <button 
-               onClick={() => coverInputRef.current.click()}
-               className="p-2 bg-black/30 hover:bg-black/50 rounded-full text-white backdrop-blur-sm transition"
-               title="Cambiar portada"
-             >
-               {loading ? <Loader2 className="animate-spin" size={16} /> : <Camera size={16} />}
-             </button>
-          </div>
+      {/* TARJETA PRINCIPAL DEL PERFIL */}
+      <Card className="overflow-hidden relative">
+        <div className="h-32 md:h-48 bg-gray-300 dark:bg-slate-700 relative group">
+            {user.cover_url ? ( <img src={user.cover_url} alt="Cover" className="w-full h-full object-cover" /> ) : ( <div className="w-full h-full bg-gradient-to-r from-blue-800 to-blue-500"></div> )}
+            <label className="absolute top-4 right-4 p-2 bg-black/50 text-white rounded-full cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70">
+                <Camera size={20} />
+                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'cover')} />
+            </label>
         </div>
 
-        {/* INFO USUARIO */}
-        <div className="px-5 pb-6 relative">
-          
-          {/* AVATAR */}
-          <div className="absolute -top-10 left-5">
-             <div className="relative inline-block">
-               <Avatar 
-                 initials={user.avatar || 'YO'} 
-                 src={user.avatar_url} 
-                 size="xl" 
-                 className="border-4 border-white dark:border-slate-800 shadow-md"
-               />
-               <button 
-                  onClick={() => avatarInputRef.current.click()}
-                  className="absolute bottom-1 right-1 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow border-2 border-white dark:border-slate-800 transition"
-                  title="Cambiar foto de perfil"
-               >
-                 <Camera size={14} />
-               </button>
+        <div className="px-6 pb-6 relative">
+             <div className="relative -mt-16 mb-4 inline-block group">
+                <div className="p-1.5 bg-white dark:bg-slate-800 rounded-full ring-4 ring-white dark:ring-slate-900">
+                    <Avatar initials={user.avatar} src={user.avatar_url} size="xl" />
+                </div>
+                <label className="absolute inset-0 flex items-center justify-center bg-black/40 text-white rounded-full opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity text-xs font-bold">
+                    CAMBIAR
+                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'avatar')} />
+                </label>
              </div>
-          </div>
-          
-          {/* BARRA DE ACCIONES (EDITAR / GUARDAR) */}
-          <div className="flex justify-end pt-2 min-h-[40px]">
-            {isEditing ? (
-              <div className="flex gap-2">
-                <Button variant="ghost" onClick={() => setIsEditing(false)} className="text-red-500 text-xs px-3">
-                  <X size={16} /> Cancelar
-                </Button>
-                <Button onClick={handleSave} disabled={loading} className="text-xs px-3">
-                  {loading ? <Loader2 className="animate-spin" size={16}/> : <><Save size={16} /> Guardar</>}
-                </Button>
-              </div>
-            ) : (
-              <Button variant="ghost" onClick={() => setIsEditing(true)} className="border border-gray-200 dark:border-slate-600 text-xs px-3">
-                <Edit3 size={16} /> <span className="hidden sm:inline ml-1">Editar</span>
-              </Button>
-            )}
-          </div>
 
-          {/* CAMPOS DE TEXTO - AQUÍ ESTÁ EL ARREGLO (mt-16) */}
-          <div className="mt-16"> 
-            {isEditing ? (
-              <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Nombre Completo</label>
-                  <input 
-                    value={formData.full_name} 
-                    onChange={(e) => setFormData({...formData, full_name: e.target.value})}
-                    className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                   <div>
-                      <label className="text-xs font-bold text-gray-500">Rol / Puesto</label>
-                      <input 
-                        value={formData.role} 
-                        onChange={(e) => setFormData({...formData, role: e.target.value})}
-                        className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white"
-                      />
-                   </div>
-                   <div>
-                      <label className="text-xs font-bold text-gray-500">Empresa</label>
-                      <input 
-                        value={formData.company} 
-                        onChange={(e) => setFormData({...formData, company: e.target.value})}
-                        className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white"
-                      />
-                   </div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500">Ubicación</label>
-                  <input 
-                    value={formData.location} 
-                    onChange={(e) => setFormData({...formData, location: e.target.value})}
-                    className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white"
-                  />
-                </div>
-                <div>
-                   <label className="text-xs font-bold text-gray-500">Biografía</label>
-                   <textarea 
-                      value={formData.bio} 
-                      onChange={(e) => setFormData({...formData, bio: e.target.value})}
-                      className="w-full p-2 border rounded h-24 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
-                   />
-                </div>
-              </div>
-            ) : (
-              // MODO VISUALIZACIÓN
-              <>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                  {user.name} 
-                  <ShieldCheck size={20} className="text-blue-600 fill-blue-100"/>
-                </h2>
-                <p className="text-blue-600 dark:text-yellow-400 font-medium text-lg">{user.role}</p>
-                
-                <div className="flex items-center gap-3 text-sm text-gray-500 mt-2 mb-4">
-                  <span className="flex items-center gap-1"><MapPin size={14}/> {user.location || 'Ubicación no definida'}</span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1"><Briefcase size={14}/> {user.company || 'Freelance'}</span>
+             <div className="absolute top-4 right-4">
+                {editing ? (
+                    <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => setEditing(false)} className="border-red-500 text-red-500 hover:bg-red-50"><X size={18} /></Button>
+                        <Button onClick={handleSave} disabled={loading}>{loading ? '...' : <Save size={18} />}</Button>
+                    </div>
+                ) : (
+                    <Button variant="outline" onClick={() => setEditing(true)} className="flex items-center gap-2">
+                        <Edit2 size={16} /> <span className="hidden sm:inline">Editar Perfil</span>
+                    </Button>
+                )}
+             </div>
+
+             <div className="space-y-2">
+                {editing ? (
+                    <div className="space-y-4 max-w-md">
+                        <input name="full_name" value={formData.full_name} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-600 font-bold text-xl" placeholder="Nombre completo" />
+                        <input name="role" value={formData.role} onChange={handleChange} className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-600 text-blue-600" placeholder="Puesto / Título" />
+                    </div>
+                ) : (
+                    <>
+                        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{user.name}</h1>
+                        <p className="text-lg text-blue-600 font-medium">{user.role || 'Sin puesto definido'}</p>
+                    </>
+                )}
+
+                <div className="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-300 mt-2">
+                    <div className="flex items-center gap-1">
+                        <Briefcase size={16} className="text-gray-400"/>
+                        {editing ? <input name="company" value={formData.company} onChange={handleChange} className="p-1 border rounded dark:bg-slate-800" placeholder="Empresa"/> : <span>{user.company}</span>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <MapPin size={16} className="text-gray-400"/>
+                        {editing ? <input name="location" value={formData.location} onChange={handleChange} className="p-1 border rounded dark:bg-slate-800" placeholder="Ubicación"/> : <span>{user.location || 'Sin ubicación'}</span>}
+                    </div>
+                    {/* SE ELIMINÓ "AÑOS DE EXPERIENCIA" AQUÍ */}
                 </div>
 
-                <div className="bg-gray-50 dark:bg-slate-700/50 p-3 rounded-lg border border-gray-100 dark:border-slate-700">
-                  <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed italic">
-                    "{user.bio || 'Sin biografía...'}"
-                  </p>
+                <div className="mt-4 p-4 bg-gray-50 dark:bg-slate-800/50 rounded-lg">
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Sobre mí</h3>
+                    {editing ? (
+                        <textarea name="bio" value={formData.bio} onChange={handleChange} rows={3} className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-600" />
+                    ) : (
+                        <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
+                            {user.bio || '¡Hola! Soy nuevo en ElevatorConnect. Aún no he escrito mi biografía.'}
+                        </p>
+                    )}
                 </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Estadísticas */}
-        <div className="grid grid-cols-3 border-t border-gray-100 dark:border-slate-700 divide-x divide-gray-100 dark:divide-slate-700 bg-gray-50/50 dark:bg-slate-800">
-          <div className="py-3 text-center">
-             <Briefcase size={18} className="mx-auto text-gray-400 mb-1" />
-             <span className="block font-bold text-lg text-blue-900 dark:text-white">142</span>
-             <span className="text-[10px] text-gray-500 uppercase tracking-wide">Proyectos</span>
-          </div>
-          <div className="py-3 text-center">
-             <Award size={18} className="mx-auto text-gray-400 mb-1" />
-             <span className="block font-bold text-lg text-blue-900 dark:text-white">8</span>
-             <span className="text-[10px] text-gray-500 uppercase tracking-wide">Certif.</span>
-          </div>
-          <div className="py-3 text-center">
-             <Calendar size={18} className="mx-auto text-gray-400 mb-1" />
-             <span className="block font-bold text-lg text-blue-900 dark:text-white">12</span>
-             <span className="text-[10px] text-gray-500 uppercase tracking-wide">Años Exp.</span>
-          </div>
-        </div>
-      </div>
-
-      {/* --- SECCIONES EXTRA --- */}
-      <Card>
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
-            <Award className="text-yellow-500" /> Certificaciones
-          </h3>
-        </div>
-        <div className="text-center py-4 text-gray-500 text-sm">
-           Funcionalidad de agregar certificaciones próximamente.
+             </div>
         </div>
       </Card>
+
+      {/* TARJETA 2: INFORMACIÓN DE CONTACTO */}
+      <Card className="p-6">
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Mail size={20} className="text-yellow-500" /> Información de Contacto
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Correo Electrónico</label>
+                <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-slate-800 rounded border border-gray-100 dark:border-slate-700">
+                    <Mail size={18} className="text-gray-400 shrink-0" />
+                    {editing ? ( <input name="email" value={formData.email} onChange={handleChange} className="bg-transparent w-full outline-none text-gray-800 dark:text-white" /> ) : ( <span className="text-gray-800 dark:text-white truncate">{user.email || 'No visible'}</span> )}
+                </div>
+            </div>
+            <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Teléfono / Móvil</label>
+                <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-slate-800 rounded border border-gray-100 dark:border-slate-700">
+                    <Phone size={18} className="text-gray-400 shrink-0" />
+                    {editing ? ( <input name="phone" value={formData.phone} onChange={handleChange} className="bg-transparent w-full outline-none text-gray-800 dark:text-white" /> ) : ( <span className="text-gray-800 dark:text-white truncate">{user.phone || 'No agregado'}</span> )}
+                </div>
+            </div>
+        </div>
+      </Card>
+
+      {/* TARJETA 3: PROYECTOS DESTACADOS (Conservada) */}
+      <Card className="p-6">
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <FolderOpen size={20} className="text-blue-500" /> Proyectos Destacados
+        </h3>
+        {editing ? (
+            <textarea name="projects" value={formData.projects} onChange={handleChange} rows={5} className="w-full p-3 border rounded dark:bg-slate-800 dark:border-slate-600" placeholder="Describe tus proyectos más importantes..." />
+        ) : (
+            <div className="prose dark:prose-invert text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                {user.projects ? user.projects : <p className="text-gray-400 italic">No has agregado proyectos aún.</p>}
+            </div>
+        )}
+      </Card>
+
+      {/* TARJETA 4: CERTIFICACIONES (Conservada) */}
+      <Card className="p-6">
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Award size={20} className="text-green-500" /> Certificaciones y Licencias
+        </h3>
+        {editing ? (
+            <textarea name="certifications" value={formData.certifications} onChange={handleChange} rows={5} className="w-full p-3 border rounded dark:bg-slate-800 dark:border-slate-600" placeholder="Lista tus certificaciones (DC-3, Marcas, etc)..." />
+        ) : (
+            <div className="prose dark:prose-invert text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                {user.certifications ? user.certifications : <p className="text-gray-400 italic">No has agregado certificaciones.</p>}
+            </div>
+        )}
+      </Card>
+
     </div>
   );
 };

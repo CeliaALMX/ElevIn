@@ -31,7 +31,29 @@ function App() {
   const fetchProfile = async (userId) => {
     try {
       const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-      if (data) setUser({ id: data.id, name: data.full_name, role: data.role, avatar: data.avatar_initials, avatar_url: data.avatar_url, cover_url: data.cover_url, bio: data.bio, company: data.company || 'Independiente', location: data.location });
+      const { data: authData } = await supabase.auth.getUser();
+      
+      const displayEmail = data?.email || authData?.user?.email || 'No definido';
+      const displayPhone = data?.phone || 'Sin teléfono';
+
+      if (data) {
+        setUser({ 
+          id: data.id, 
+          name: data.full_name, 
+          role: data.role, 
+          avatar: data.avatar_initials, 
+          avatar_url: data.avatar_url, 
+          cover_url: data.cover_url, 
+          bio: data.bio, 
+          company: data.company || 'Independiente', 
+          location: data.location,
+          email: displayEmail,
+          phone: displayPhone,
+          // --- SOLO PROYECTOS Y CERTIFICACIONES ---
+          certifications: data.certifications || '',
+          projects: data.projects || ''
+        });
+      }
     } catch (error) { console.error(error); } finally { setSessionLoading(false); }
   };
 
@@ -64,7 +86,7 @@ function App() {
       
       {/* Navbar Superior */}
       <nav className="sticky top-0 z-30 bg-blue-900 text-white shadow-md border-b-4 border-yellow-500">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0">
             <ArrowUp className="bg-yellow-400 text-blue-900 p-0.5 rounded" size={28} />
             <span className="hidden xs:inline">ElevatorConnect</span>
@@ -96,7 +118,7 @@ function App() {
       </nav>
 
       {/* Área Principal */}
-      <main className="max-w-4xl mx-auto min-h-[calc(100vh-4rem)]">
+      <main className="max-w-7xl mx-auto min-h-[calc(100vh-4rem)]">
         {view === 'feed' && <FeedView user={user} />}
         {view === 'jobs' && <JobsView jobs={JOBS_DATA} onApply={(t) => alert(`Postulado a: ${t}`)} />}
         {view === 'networking' && <NetworkingView />}
