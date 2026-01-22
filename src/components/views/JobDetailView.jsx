@@ -3,7 +3,8 @@ import { ArrowLeft, MapPin, Building, Briefcase, Calendar, Clock, CheckCircle, S
 import Button from '../ui/Button';
 import Avatar from '../ui/Avatar';
 
-const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport }) => {
+// Se agrega la prop 'onViewCompany' para manejar la navegación al perfil
+const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, onViewCompany }) => {
   if (!job) return null;
   const isCompany = userRole === 'Empresa';
 
@@ -48,9 +49,14 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport }) 
                 {job.title}
               </h1>
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-gray-600 dark:text-gray-300 text-sm">
-                 <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                 {/* MODIFICACIÓN: Botón interactivo para ir al perfil de la empresa */}
+                 <button 
+                    onClick={() => onViewCompany && onViewCompany(job)}
+                    className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1.5 hover:underline hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                 >
                     <Building size={16} /> {job.company}
-                 </span>
+                 </button>
+                 
                  <span className="hidden sm:inline text-gray-300">|</span>
                  <span className="flex items-center gap-1.5">
                     <MapPin size={16} /> {job.location}

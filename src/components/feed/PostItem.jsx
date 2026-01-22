@@ -56,6 +56,7 @@ const PostItem = ({
     setSendingComment(false);
   };
 
+  // Verifica si el usuario actual es el propietario del post
   const isOwner = user.id === post.user_id;
 
   const renderMediaGrid = () => {
@@ -102,6 +103,7 @@ const PostItem = ({
                </span>
             </div>
             
+            {/* Menú de opciones: Solo visible para el propietario (isOwner) */}
             {isOwner && !isEditing && (
               <div className="relative" ref={menuRef}>
                 <button onClick={() => setShowMenu(!showMenu)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 shrink-0">

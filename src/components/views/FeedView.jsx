@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Video, Image, X, Layers, Briefcase, MapPin, Camera, UserPlus, Sparkles, Users, Mail, Phone } from 'lucide-react';
+import { Loader2, Video, Image, X, Sparkles, Users, Briefcase, UserPlus, MapPin, Camera, Mail, Phone } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useComments } from '../../hooks/useComments';
 import { uploadFileToSupabase } from '../../helpers/fileUpload';
@@ -103,9 +103,61 @@ const FeedView = ({ user }) => {
     } catch (err) { alert(`Error al publicar: ${err.message}.`); } finally { setIsUploading(false); }
   };
 
-  const handleVote = async (postId, type) => { /* ... Lógica de likes (igual que antes) ... */ };
-  const handleDeletePost = async (postId) => { /* ... Lógica de borrar ... */ };
-  const handleUpdatePost = async (postId, content) => { /* ... Lógica de actualizar ... */ };
+  const handleVote = async (postId, type) => {
+      // (Misma lógica de voto que tenías o simplificada)
+      const post = posts.find(p => p.id === postId);
+      if (!post) return;
+      
+      const currentVote = post.user_vote;
+      let newVote = type;
+      if (currentVote === type) newVote = null; // Toggle
+
+      // Optimistic update
+      setPosts(posts.map(p => {
+          if (p.id !== postId) return p;
+          let likes = p.likes_count;
+          let dislikes = p.dislikes_count;
+          
+          if (currentVote === 'like') likes--;
+          if (currentVote === 'dislike') dislikes--;
+          
+          if (newVote === 'like') likes++;
+          if (newVote === 'dislike') dislikes++;
+          
+          return { ...p, user_vote: newVote, likes_count: likes, dislikes_count: dislikes };
+      }));
+
+      // Supabase call
+      if (currentVote) await supabase.from('post_votes').delete().eq('user_id', user.id).eq('post_id', postId);
+      if (newVote) await supabase.from('post_votes').insert({ user_id: user.id, post_id: postId, vote_type: newVote });
+      
+      const rpcName = newVote === 'like' ? 'increment_likes' : (newVote === 'dislike' ? 'increment_dislikes' : (currentVote === 'like' ? 'decrement_likes' : 'decrement_dislikes'));
+      await supabase.rpc(rpcName, { post_id: postId });
+  };
+
+  // --- LÓGICA DE BORRAR POST ---
+  const handleDeletePost = async (postId) => {
+    try {
+        const { error } = await supabase.from('posts').delete().eq('id', postId).eq('user_id', user.id);
+        if (error) throw error;
+        setPosts(prev => prev.filter(p => p.id !== postId));
+    } catch (error) {
+        console.error('Error deleting:', error);
+        alert('No se pudo eliminar la publicación.');
+    }
+  };
+
+  // --- LÓGICA DE ACTUALIZAR POST ---
+  const handleUpdatePost = async (postId, newContent) => {
+      try {
+          const { error } = await supabase.from('posts').update({ content: newContent }).eq('id', postId).eq('user_id', user.id);
+          if (error) throw error;
+          setPosts(prev => prev.map(p => p.id === postId ? { ...p, content: newContent } : p));
+      } catch (error) {
+          console.error('Error updating:', error);
+          alert('No se pudo actualizar.');
+      }
+  };
 
   return (
     <div className="pt-6 px-4 grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -114,10 +166,8 @@ const FeedView = ({ user }) => {
       {/* --- COLUMNA IZQUIERDA: PERFIL --- */}
       <aside className="hidden lg:block lg:col-span-1 space-y-4">
         <Card className="sticky top-24 overflow-hidden">
-            {/* Portada */}
             <div className="relative h-28 bg-gray-200 dark:bg-slate-700">
                 {user.cover_url ? ( <img src={user.cover_url} alt="Portada" className="w-full h-full object-cover" /> ) : ( <div className="w-full h-full bg-gradient-to-r from-blue-800 to-blue-600"></div> )}
-                {/* Avatar Flotante */}
                 <div className="absolute -bottom-10 left-4 group">
                     <div className="p-1 bg-white dark:bg-slate-800 rounded-full ring-4 ring-white dark:ring-slate-900">
                         <Avatar initials={user.avatar} src={user.avatar_url} size="lg" />
@@ -129,7 +179,6 @@ const FeedView = ({ user }) => {
                 </div>
             </div>
 
-            {/* Contenido Perfil */}
             <div className="px-4 pb-4 pt-14">
                 <div>
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white leading-tight">{user.name}</h2>
@@ -144,8 +193,6 @@ const FeedView = ({ user }) => {
                             <MapPin size={16} className="text-gray-400" />
                             <span className="truncate">{user.location || 'Ubicación no definida'}</span>
                         </div>
-
-                        {/* --- AQUÍ ESTÁ EL CONTACTO REFLEJADO --- */}
                         <div className="pt-2 mt-2 border-t border-gray-100 dark:border-slate-700 space-y-2">
                              <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400" title="Correo de Contacto">
                                 <Mail size={14} />
@@ -155,18 +202,6 @@ const FeedView = ({ user }) => {
                                 <Phone size={14} />
                                 <span className="truncate text-xs">{user.phone || 'Sin teléfono'}</span>
                              </div>
-                        </div>
-                    </div>
-
-                    <div className="mt-6 flex border-t border-gray-100 dark:border-slate-700 pt-4 text-center">
-                        <div className="flex-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 rounded py-1 transition-colors">
-                            <div className="text-lg font-bold text-gray-900 dark:text-white">128</div>
-                            <div className="text-xs text-gray-500">Siguiendo</div>
-                        </div>
-                        <div className="h-10 w-px bg-gray-200 dark:bg-slate-700 mx-2"></div>
-                        <div className="flex-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 rounded py-1 transition-colors">
-                            <div className="text-lg font-bold text-gray-900 dark:text-white">345</div>
-                            <div className="text-xs text-gray-500">Seguidores</div>
                         </div>
                     </div>
                 </div>
@@ -223,14 +258,6 @@ const FeedView = ({ user }) => {
                 {JOBS_DATA.slice(0, 2).map(job => ( <div key={job.id} className="border-b border-gray-100 dark:border-slate-700 pb-3 last:border-0 last:pb-0"> <h4 className="font-semibold text-sm text-gray-800 dark:text-gray-200">{job.title}</h4> <p className="text-xs text-gray-500">{job.company}</p> <p className="text-xs text-green-600 font-medium mt-1">{job.salary}</p> </div> ))}
             </div>
             <button className="w-full mt-4 text-xs text-blue-600 font-medium hover:underline">Ver todos los empleos</button>
-        </Card>
-
-        <Card className="p-4">
-            <h3 className="font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2"> <UserPlus size={18} className="text-yellow-500"/> Quizás conozcas </h3>
-            <div className="space-y-4">
-                {suggestedPeople.map(person => ( <div key={person.id} className="flex items-center gap-3"> <Avatar initials={person.avatar_initials} src={person.avatar_url} size="sm" /> <div className="flex-1 min-w-0"> <h4 className="text-sm font-bold truncate dark:text-white">{person.full_name}</h4> <p className="text-xs text-gray-500 truncate">{person.role}</p> </div> <button className="p-1.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-slate-700 dark:text-blue-400"> <UserPlus size={16} /> </button> </div> ))}
-                {suggestedPeople.length === 0 && <p className="text-xs text-gray-500">No hay sugerencias nuevas.</p>}
-            </div>
         </Card>
       </aside>
     </div>

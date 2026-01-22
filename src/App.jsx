@@ -25,28 +25,27 @@ function App() {
   const [view, setView] = useState('feed'); 
   const [sessionLoading, setSessionLoading] = useState(true);
   
+  // Perfil que se está visualizando (puede ser el mío o de una empresa)
+  const [viewedProfile, setViewedProfile] = useState(null);
+
   // --- ESTADOS DE DATOS ---
   const [jobs, setJobs] = useState(() => {
     const savedJobs = localStorage.getItem('elevin_jobs');
     return savedJobs ? JSON.parse(savedJobs) : JOBS_DATA;
   });
 
-  // --- ESTADO DE POSTULACIONES ---
   const [appliedJobs, setAppliedJobs] = useState(() => {
     const saved = localStorage.getItem('elevin_applications');
     return saved ? JSON.parse(saved) : []; 
   });
 
-  // --- ESTADO DE REPORTADOS (NUEVO) ---
   const [reportedJobs, setReportedJobs] = useState(() => {
     const saved = localStorage.getItem('elevin_reported');
     return saved ? JSON.parse(saved) : []; 
   });
 
-  // --- ESTADO DE MODALES ---
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [jobToReport, setJobToReport] = useState(null);
-
   const [selectedJob, setSelectedJob] = useState(null);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -54,11 +53,8 @@ function App() {
     return savedTheme === 'light' ? false : true;
   });
 
-  // Persistencia
   useEffect(() => { localStorage.setItem('elevin_jobs', JSON.stringify(jobs)); }, [jobs]);
   useEffect(() => { localStorage.setItem('elevin_applications', JSON.stringify(appliedJobs)); }, [appliedJobs]);
-  
-  // Guardamos los reportados
   useEffect(() => { localStorage.setItem('elevin_reported', JSON.stringify(reportedJobs)); }, [reportedJobs]);
 
   const fetchProfile = async (userId) => {
@@ -66,11 +62,8 @@ function App() {
       const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
       const { data: authData } = await supabase.auth.getUser();
       
-      const displayEmail = data?.email || authData?.user?.email || 'No definido';
-      const displayPhone = data?.phone || 'Sin teléfono';
-
       if (data) {
-        setUser({ 
+        return { 
           id: data.id, 
           name: data.full_name, 
           role: data.role, 
@@ -80,23 +73,45 @@ function App() {
           bio: data.bio, 
           company: data.company || 'Independiente', 
           location: data.location,
-          email: displayEmail,
-          phone: displayPhone,
+          email: data.email || authData?.user?.email || 'No definido',
+          phone: data.phone || 'Sin teléfono',
           certifications: data.certifications || '',
           projects: data.projects || ''
-        });
+        };
       }
-    } catch (error) { console.error(error); } finally { setSessionLoading(false); }
+      return null;
+    } catch (error) { console.error(error); return null; }
   };
 
   useEffect(() => {
-    const init = async () => { const { data: { session } } = await supabase.auth.getSession(); if (session) await fetchProfile(session.user.id); else setSessionLoading(false); };
+    const init = async () => { 
+        const { data: { session } } = await supabase.auth.getSession(); 
+        if (session) {
+            const profile = await fetchProfile(session.user.id);
+            setUser(profile);
+        }
+        setSessionLoading(false); 
+    };
     init();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => { if (session) await fetchProfile(session.user.id); else { setUser(null); setSessionLoading(false); } });
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => { 
+        if (session) {
+            const profile = await fetchProfile(session.user.id);
+            setUser(profile);
+        } else { 
+            setUser(null); 
+        }
+        setSessionLoading(false);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleProfileRefresh = () => { if (user?.id) fetchProfile(user.id); };
+  const handleProfileRefresh = async () => { 
+      if (user?.id) {
+          const updated = await fetchProfile(user.id);
+          setUser(updated);
+      }
+  };
 
   useEffect(() => { 
     if (isDarkMode) {
@@ -110,13 +125,13 @@ function App() {
 
   const handleLogout = async () => { await supabase.auth.signOut(); setUser(null); setView('feed'); };
 
-  // --- LOGICA DE EMPLEOS ---
   const handleGoToCreateJob = () => { setView('create-job'); window.scrollTo(0,0); };
 
   const handleCreateJob = (newJobData) => {
     const newJob = {
       id: Date.now(), 
       ...newJobData,
+      user_id: user.id, // Guardamos el ID del creador
       companyAvatar: user.avatar_url,
       companyInitials: user.avatar, 
       postedAt: new Date(),
@@ -129,33 +144,60 @@ function App() {
   };
 
   const handleViewJobDetail = (job) => { setSelectedJob(job); setView('job-detail'); window.scrollTo(0,0); };
-
-  // --- LOGICA DE POSTULACIÓN ---
-  const handleApplyJob = (jobId, jobTitle) => {
-    if (!appliedJobs.includes(jobId)) {
-      setAppliedJobs([...appliedJobs, jobId]);
+  
+  // --- NUEVO: MANEJAR VISITA A PERFIL DE EMPRESA ---
+  const handleViewCompanyProfile = async (job) => {
+    if (job.user_id) {
+        // Si el empleo tiene un ID de usuario real (creado en la app), buscamos ese perfil
+        setSessionLoading(true);
+        const profile = await fetchProfile(job.user_id);
+        setSessionLoading(false);
+        if (profile) {
+            setViewedProfile(profile);
+            setView('profile');
+            window.scrollTo(0,0);
+        } else {
+            alert("No se pudo cargar el perfil de la empresa.");
+        }
+    } else {
+        // Si es un dato Mock (falso), creamos un perfil temporal visual
+        const mockProfile = {
+            id: 'mock-' + job.id,
+            name: job.company,
+            role: 'Empresa Verificada',
+            avatar: job.companyInitials,
+            avatar_url: job.companyAvatar,
+            company: job.company,
+            location: job.location,
+            bio: `Perfil corporativo de ${job.company}. Empresa líder en el sector de elevación.`,
+            email: 'contacto@empresa.com',
+            phone: '55 1234 5678',
+            projects: 'Mantenimiento en Torre Reforma\nModernización Metro CDMX',
+            certifications: 'ISO 9001\nDC-3 Alturas'
+        };
+        setViewedProfile(mockProfile);
+        setView('profile');
+        window.scrollTo(0,0);
     }
   };
 
-  // --- LOGICA DE REPORTE (ACTUALIZADA) ---
-  const handleOpenReport = (job) => {
-    setJobToReport(job);
-    setIsReportModalOpen(true);
+  const handleGoToMyProfile = () => {
+      setViewedProfile(null); // Null significa "Mi propio perfil"
+      setView('profile');
   };
+
+  const handleApplyJob = (jobId, jobTitle) => {
+    if (!appliedJobs.includes(jobId)) { setAppliedJobs([...appliedJobs, jobId]); }
+  };
+
+  const handleOpenReport = (job) => { setJobToReport(job); setIsReportModalOpen(true); };
 
   const handleSubmitReport = (reportData) => {
     if (jobToReport) {
-      // 1. Agregar ID a la lista negra
       setReportedJobs([...reportedJobs, jobToReport.id]);
-      
-      console.log("Reporte enviado:", reportData, "ID:", jobToReport.id);
-      alert("Gracias. Hemos recibido tu reporte. El empleo ha sido ocultado de tu feed.");
-      
-      // 2. Cerrar modal y limpiar
+      alert("Gracias. Hemos recibido tu reporte.");
       setIsReportModalOpen(false);
       setJobToReport(null);
-
-      // 3. Si estábamos viendo el detalle de ese empleo, regresar a la lista
       if (view === 'job-detail' && selectedJob?.id === jobToReport.id) {
           setView('jobs');
           window.scrollTo(0,0);
@@ -163,10 +205,7 @@ function App() {
     }
   };
 
-  // --- FILTRADO DE EMPLEOS VISIBLES ---
-  // Creamos una variable derivada que excluye los reportados
   const visibleJobs = jobs.filter(job => !reportedJobs.includes(job.id));
-
 
   if (sessionLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900"><Loader2 className="animate-spin text-blue-600 w-10 h-10"/></div>;
   if (!user) return <LoginScreen />;
@@ -174,7 +213,6 @@ function App() {
   return (
     <div className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-gray-100 font-sans min-h-screen transition-colors duration-300">
       
-      {/* Navbar Superior */}
       <nav className="sticky top-0 z-30 bg-blue-900 text-white shadow-md border-b-4 border-yellow-500">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0">
@@ -191,7 +229,7 @@ function App() {
           </div>
 
           <div className="flex items-center gap-2 md:gap-4 shrink-0">
-             <button onClick={() => setView('profile')} className={`hidden md:flex items-center gap-2 p-1 pr-3 rounded-full transition-colors group ${view === 'profile' ? 'bg-blue-800' : 'hover:bg-blue-800'}`}>
+             <button onClick={handleGoToMyProfile} className={`hidden md:flex items-center gap-2 p-1 pr-3 rounded-full transition-colors group ${view === 'profile' && !viewedProfile ? 'bg-blue-800' : 'hover:bg-blue-800'}`}>
                <div className="w-8 h-8 rounded-full bg-blue-700 border border-blue-400 flex items-center justify-center text-xs font-bold text-white overflow-hidden">
                   <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="border-none" />
                </div>
@@ -213,7 +251,7 @@ function App() {
         
         {view === 'jobs' && (
           <JobsView 
-            jobs={visibleJobs} // <--- PASAMOS LA LISTA FILTRADA
+            jobs={visibleJobs} 
             userRole={user.role}
             onCreateJobClick={handleGoToCreateJob} 
             onViewDetail={handleViewJobDetail} 
@@ -228,7 +266,9 @@ function App() {
             onApply={handleApplyJob} 
             userRole={user.role}
             isApplied={appliedJobs.includes(selectedJob?.id)} 
-            onReport={handleOpenReport} 
+            onReport={handleOpenReport}
+            // AQUÍ PASAMOS LA FUNCIÓN PARA VER LA EMPRESA
+            onViewCompany={handleViewCompanyProfile} 
           />
         )}
 
@@ -242,7 +282,16 @@ function App() {
 
         {view === 'networking' && <NetworkingView />}
         {view === 'support' && <SupportView />}
-        {view === 'profile' && <ProfileView user={user} onProfileUpdate={handleProfileRefresh} />}
+        
+        {/* MODIFICADO: ProfileView ahora recibe el usuario actual Y el usuario a ver */}
+        {view === 'profile' && (
+            <ProfileView 
+                user={viewedProfile || user} // Si hay un perfil visitado, úsalo. Si no, usa el mío.
+                currentUser={user}          // Siempre paso quién soy yo realmente
+                onProfileUpdate={handleProfileRefresh} 
+            />
+        )}
+        
         {view === 'settings' && <SettingsView isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />}
       </main>
 
@@ -251,7 +300,7 @@ function App() {
         <NavButton icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
         <NavButton icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
         <NavButton icon={Settings} label="Ajustes" active={view === 'settings'} onClick={() => setView('settings')} />
-        <NavButton icon={User} label="Perfil" active={view === 'profile'} onClick={() => setView('profile')} />
+        <NavButton icon={User} label="Perfil" active={view === 'profile'} onClick={handleGoToMyProfile} />
       </div>
 
       <ReportJobModal 
