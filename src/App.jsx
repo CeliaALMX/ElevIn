@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings, Loader2 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
-// --- IMPORTACIONES UI & VISTAS ---
+// --- VISTAS ---
 import LoginScreen from './components/LoginScreen';
 import Avatar from './components/ui/Avatar';
 import FeedView from './components/views/FeedView';
@@ -11,22 +11,55 @@ import JobsView from './components/views/JobsView';
 import SupportView from './components/views/SupportView';
 import NetworkingView from './components/views/NetworkingView';
 import ProfileView from './components/views/ProfileView';
+import JobDetailView from './components/views/JobDetailView';
+import CreateJobView from './components/views/CreateJobView';
 
-// --- COMPONENTES DE NAVEGACIÓN ---
+// --- MODALES ---
+import ReportJobModal from './components/modals/ReportJobModal';
+
 import { DesktopNavLink, NavButton } from './components/ui/NavComponents';
-
-// --- DATOS MOCK ---
 import { JOBS_DATA } from './data/mockData';
 
 function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('feed');
+  const [view, setView] = useState('feed'); 
   const [sessionLoading, setSessionLoading] = useState(true);
+  
+  // --- ESTADOS DE DATOS ---
+  const [jobs, setJobs] = useState(() => {
+    const savedJobs = localStorage.getItem('elevin_jobs');
+    return savedJobs ? JSON.parse(savedJobs) : JOBS_DATA;
+  });
+
+  // --- ESTADO DE POSTULACIONES ---
+  const [appliedJobs, setAppliedJobs] = useState(() => {
+    const saved = localStorage.getItem('elevin_applications');
+    return saved ? JSON.parse(saved) : []; 
+  });
+
+  // --- ESTADO DE REPORTADOS (NUEVO) ---
+  const [reportedJobs, setReportedJobs] = useState(() => {
+    const saved = localStorage.getItem('elevin_reported');
+    return saved ? JSON.parse(saved) : []; 
+  });
+
+  // --- ESTADO DE MODALES ---
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [jobToReport, setJobToReport] = useState(null);
+
+  const [selectedJob, setSelectedJob] = useState(null);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem('theme');
     return savedTheme === 'light' ? false : true;
   });
+
+  // Persistencia
+  useEffect(() => { localStorage.setItem('elevin_jobs', JSON.stringify(jobs)); }, [jobs]);
+  useEffect(() => { localStorage.setItem('elevin_applications', JSON.stringify(appliedJobs)); }, [appliedJobs]);
+  
+  // Guardamos los reportados
+  useEffect(() => { localStorage.setItem('elevin_reported', JSON.stringify(reportedJobs)); }, [reportedJobs]);
 
   const fetchProfile = async (userId) => {
     try {
@@ -49,7 +82,6 @@ function App() {
           location: data.location,
           email: displayEmail,
           phone: displayPhone,
-          // --- SOLO PROYECTOS Y CERTIFICACIONES ---
           certifications: data.certifications || '',
           projects: data.projects || ''
         });
@@ -76,7 +108,65 @@ function App() {
     } 
   }, [isDarkMode]);
 
-  const handleLogout = async () => { await supabase.auth.signOut(); setUser(null); };
+  const handleLogout = async () => { await supabase.auth.signOut(); setUser(null); setView('feed'); };
+
+  // --- LOGICA DE EMPLEOS ---
+  const handleGoToCreateJob = () => { setView('create-job'); window.scrollTo(0,0); };
+
+  const handleCreateJob = (newJobData) => {
+    const newJob = {
+      id: Date.now(), 
+      ...newJobData,
+      companyAvatar: user.avatar_url,
+      companyInitials: user.avatar, 
+      postedAt: new Date(),
+      postedAtRelative: 'Hace un momento'
+    };
+    setJobs([newJob, ...jobs]);
+    alert('¡Empleo publicado exitosamente!');
+    setView('jobs'); 
+    window.scrollTo(0,0);
+  };
+
+  const handleViewJobDetail = (job) => { setSelectedJob(job); setView('job-detail'); window.scrollTo(0,0); };
+
+  // --- LOGICA DE POSTULACIÓN ---
+  const handleApplyJob = (jobId, jobTitle) => {
+    if (!appliedJobs.includes(jobId)) {
+      setAppliedJobs([...appliedJobs, jobId]);
+    }
+  };
+
+  // --- LOGICA DE REPORTE (ACTUALIZADA) ---
+  const handleOpenReport = (job) => {
+    setJobToReport(job);
+    setIsReportModalOpen(true);
+  };
+
+  const handleSubmitReport = (reportData) => {
+    if (jobToReport) {
+      // 1. Agregar ID a la lista negra
+      setReportedJobs([...reportedJobs, jobToReport.id]);
+      
+      console.log("Reporte enviado:", reportData, "ID:", jobToReport.id);
+      alert("Gracias. Hemos recibido tu reporte. El empleo ha sido ocultado de tu feed.");
+      
+      // 2. Cerrar modal y limpiar
+      setIsReportModalOpen(false);
+      setJobToReport(null);
+
+      // 3. Si estábamos viendo el detalle de ese empleo, regresar a la lista
+      if (view === 'job-detail' && selectedJob?.id === jobToReport.id) {
+          setView('jobs');
+          window.scrollTo(0,0);
+      }
+    }
+  };
+
+  // --- FILTRADO DE EMPLEOS VISIBLES ---
+  // Creamos una variable derivada que excluye los reportados
+  const visibleJobs = jobs.filter(job => !reportedJobs.includes(job.id));
+
 
   if (sessionLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900"><Loader2 className="animate-spin text-blue-600 w-10 h-10"/></div>;
   if (!user) return <LoginScreen />;
@@ -95,7 +185,7 @@ function App() {
 
           <div className="hidden md:flex h-full items-center gap-1">
              <DesktopNavLink icon={Home} label="Inicio" active={view === 'feed'} onClick={() => setView('feed')} />
-             <DesktopNavLink icon={Briefcase} label="Empleos" active={view === 'jobs'} onClick={() => setView('jobs')} />
+             <DesktopNavLink icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
              <DesktopNavLink icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
              <DesktopNavLink icon={LifeBuoy} label="Soporte" active={view === 'support'} onClick={() => setView('support')} />
           </div>
@@ -117,24 +207,60 @@ function App() {
         </div>
       </nav>
 
-      {/* Área Principal */}
-      <main className="max-w-7xl mx-auto min-h-[calc(100vh-4rem)]">
+      <main className={`min-h-[calc(100vh-4rem)] ${(view === 'job-detail' || view === 'create-job') ? 'w-full' : 'max-w-7xl mx-auto p-4'}`}>
+        
         {view === 'feed' && <FeedView user={user} />}
-        {view === 'jobs' && <JobsView jobs={JOBS_DATA} onApply={(t) => alert(`Postulado a: ${t}`)} />}
+        
+        {view === 'jobs' && (
+          <JobsView 
+            jobs={visibleJobs} // <--- PASAMOS LA LISTA FILTRADA
+            userRole={user.role}
+            onCreateJobClick={handleGoToCreateJob} 
+            onViewDetail={handleViewJobDetail} 
+            appliedJobs={appliedJobs} 
+          />
+        )}
+
+        {view === 'job-detail' && (
+          <JobDetailView 
+            job={selectedJob} 
+            onBack={() => setView('jobs')} 
+            onApply={handleApplyJob} 
+            userRole={user.role}
+            isApplied={appliedJobs.includes(selectedJob?.id)} 
+            onReport={handleOpenReport} 
+          />
+        )}
+
+        {view === 'create-job' && (
+          <CreateJobView
+             onCreate={handleCreateJob}
+             onCancel={() => setView('jobs')}
+             currentUser={user}
+          />
+        )}
+
         {view === 'networking' && <NetworkingView />}
         {view === 'support' && <SupportView />}
         {view === 'profile' && <ProfileView user={user} onProfileUpdate={handleProfileRefresh} />}
         {view === 'settings' && <SettingsView isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />}
       </main>
 
-      {/* Navbar Móvil */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t dark:border-slate-700 flex justify-around p-2 pb-safe z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
         <NavButton icon={Home} label="Inicio" active={view === 'feed'} onClick={() => setView('feed')} />
-        <NavButton icon={Briefcase} label="Empleos" active={view === 'jobs'} onClick={() => setView('jobs')} />
+        <NavButton icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
         <NavButton icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
         <NavButton icon={Settings} label="Ajustes" active={view === 'settings'} onClick={() => setView('settings')} />
         <NavButton icon={User} label="Perfil" active={view === 'profile'} onClick={() => setView('profile')} />
       </div>
+
+      <ReportJobModal 
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        onSubmit={handleSubmitReport}
+        jobTitle={jobToReport?.title}
+      />
+
     </div>
   );
 }
