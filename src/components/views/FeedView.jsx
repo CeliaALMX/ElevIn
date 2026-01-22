@@ -10,7 +10,8 @@ import PostItem from '../feed/PostItem';
 import PostDetailModal from '../modals/PostDetailModal';
 import { JOBS_DATA } from '../../data/mockData';
 
-const FeedView = ({ user }) => {
+// CAMBIO 1: Recibimos onViewProfile aquí
+const FeedView = ({ user, onViewProfile }) => {
   const [posts, setPosts] = useState([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -104,15 +105,13 @@ const FeedView = ({ user }) => {
   };
 
   const handleVote = async (postId, type) => {
-      // (Misma lógica de voto que tenías o simplificada)
       const post = posts.find(p => p.id === postId);
       if (!post) return;
       
       const currentVote = post.user_vote;
       let newVote = type;
-      if (currentVote === type) newVote = null; // Toggle
+      if (currentVote === type) newVote = null; 
 
-      // Optimistic update
       setPosts(posts.map(p => {
           if (p.id !== postId) return p;
           let likes = p.likes_count;
@@ -127,7 +126,6 @@ const FeedView = ({ user }) => {
           return { ...p, user_vote: newVote, likes_count: likes, dislikes_count: dislikes };
       }));
 
-      // Supabase call
       if (currentVote) await supabase.from('post_votes').delete().eq('user_id', user.id).eq('post_id', postId);
       if (newVote) await supabase.from('post_votes').insert({ user_id: user.id, post_id: postId, vote_type: newVote });
       
@@ -135,7 +133,6 @@ const FeedView = ({ user }) => {
       await supabase.rpc(rpcName, { post_id: postId });
   };
 
-  // --- LÓGICA DE BORRAR POST ---
   const handleDeletePost = async (postId) => {
     try {
         const { error } = await supabase.from('posts').delete().eq('id', postId).eq('user_id', user.id);
@@ -147,7 +144,6 @@ const FeedView = ({ user }) => {
     }
   };
 
-  // --- LÓGICA DE ACTUALIZAR POST ---
   const handleUpdatePost = async (postId, newContent) => {
       try {
           const { error } = await supabase.from('posts').update({ content: newContent }).eq('id', postId).eq('user_id', user.id);
@@ -247,7 +243,29 @@ const FeedView = ({ user }) => {
              <button onClick={() => setFeedType('following')} className={`flex-1 pb-3 text-sm font-semibold flex items-center justify-center gap-2 ${feedType === 'following' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}> <Users size={16} /> Siguiendo </button>
         </div>
 
-        {loading ? ( <div className="flex justify-center p-4"><Loader2 className="animate-spin text-blue-600"/></div> ) : ( <div className="space-y-4"> {posts.length === 0 ? ( <div className="text-center py-10 text-gray-500"> <p>No hay publicaciones para mostrar aquí.</p> </div> ) : posts.map((post) => ( <PostItem key={post.id} post={post} user={user} onVote={handleVote} onDelete={handleDeletePost} onUpdate={handleUpdatePost} onToggleComments={() => toggleComments(post.id)} showComments={activeCommentsPostId === post.id} comments={commentsData[post.id]} onCommentAction={commentActions} onOpenDetail={setFullScreenPost} /> ))} </div> )}
+        {loading ? ( <div className="flex justify-center p-4"><Loader2 className="animate-spin text-blue-600"/></div> ) : ( 
+            <div className="space-y-4"> 
+            {posts.length === 0 ? ( 
+                <div className="text-center py-10 text-gray-500"> <p>No hay publicaciones para mostrar aquí.</p> </div> 
+            ) : posts.map((post) => ( 
+                <PostItem 
+                    key={post.id} 
+                    post={post} 
+                    user={user} 
+                    onVote={handleVote} 
+                    onDelete={handleDeletePost} 
+                    onUpdate={handleUpdatePost} 
+                    onToggleComments={() => toggleComments(post.id)} 
+                    showComments={activeCommentsPostId === post.id} 
+                    comments={commentsData[post.id]} 
+                    onCommentAction={commentActions} 
+                    onOpenDetail={setFullScreenPost}
+                    // CAMBIO 2: Pasamos la función al componente PostItem
+                    onViewProfile={onViewProfile}
+                /> 
+            ))} 
+            </div> 
+        )}
       </div>
 
       {/* --- COLUMNA DERECHA: WIDGETS --- */}

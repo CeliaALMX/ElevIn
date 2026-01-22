@@ -18,7 +18,8 @@ const PostItem = ({
   showComments, 
   comments, 
   onCommentAction,
-  onOpenDetail 
+  onOpenDetail,
+  onViewProfile // <--- NUEVA PROP RECIBIDA
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(post.content);
@@ -93,32 +94,38 @@ const PostItem = ({
   return (
     <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500">
       <div className="flex gap-3 mb-2 items-start">
-        <Avatar initials={post.profiles?.avatar_initials || '??'} src={post.profiles?.avatar_url} />
-        <div className="flex-1 min-w-0">
-          <div className="flex justify-between items-start">
-            <div className="truncate pr-2">
-               <h4 className="font-bold text-sm text-gray-900 dark:text-white truncate">{post.profiles?.full_name || 'Usuario'}</h4>
-               <span className="text-[10px] text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900 px-2 py-0.5 rounded-full inline-block mt-0.5">
-                 {post.profiles?.role || 'Miembro'}
-               </span>
+        {/* --- NUEVO: WRAPPER CON ONCLICK --- */}
+        <div 
+            className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer group" 
+            onClick={() => onViewProfile && onViewProfile(post.user_id)}
+        >
+            <Avatar initials={post.profiles?.avatar_initials || '??'} src={post.profiles?.avatar_url} />
+            <div className="flex-1 min-w-0">
+                <div className="flex flex-col">
+                    <h4 className="font-bold text-sm text-gray-900 dark:text-white truncate group-hover:text-blue-600 transition-colors">
+                        {post.profiles?.full_name || 'Usuario'}
+                    </h4>
+                    <span className="text-[10px] text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900 px-2 py-0.5 rounded-full inline-block mt-0.5 w-fit">
+                        {post.profiles?.role || 'Miembro'}
+                    </span>
+                </div>
             </div>
-            
-            {/* Menú de opciones: Solo visible para el propietario (isOwner) */}
-            {isOwner && !isEditing && (
-              <div className="relative" ref={menuRef}>
-                <button onClick={() => setShowMenu(!showMenu)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 shrink-0">
-                  <MoreHorizontal size={18} />
-                </button>
-                {showMenu && (
-                  <div className="absolute right-0 top-6 w-32 bg-white dark:bg-slate-800 shadow-xl rounded-md border border-gray-100 dark:border-slate-600 z-50 overflow-hidden text-xs">
-                    <button onClick={() => { setIsEditing(true); setShowMenu(false); }} className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-blue-600"><Edit2 size={14} /> Editar</button>
-                    <button onClick={() => { if(window.confirm('¿Eliminar publicación?')) onDelete(post.id); }} className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-red-600"><Trash2 size={14} /> Eliminar</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         </div>
+
+        {/* Menú de opciones: Solo visible para el propietario (isOwner) */}
+        {isOwner && !isEditing && (
+            <div className="relative" ref={menuRef}>
+            <button onClick={() => setShowMenu(!showMenu)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 shrink-0">
+                <MoreHorizontal size={18} />
+            </button>
+            {showMenu && (
+                <div className="absolute right-0 top-6 w-32 bg-white dark:bg-slate-800 shadow-xl rounded-md border border-gray-100 dark:border-slate-600 z-50 overflow-hidden text-xs">
+                <button onClick={() => { setIsEditing(true); setShowMenu(false); }} className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-blue-600"><Edit2 size={14} /> Editar</button>
+                <button onClick={() => { if(window.confirm('¿Eliminar publicación?')) onDelete(post.id); }} className="w-full text-left px-3 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2 text-red-600"><Trash2 size={14} /> Eliminar</button>
+                </div>
+            )}
+            </div>
+        )}
       </div>
       
       {isEditing ? (

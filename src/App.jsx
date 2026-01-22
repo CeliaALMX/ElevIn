@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings, Loader2 } from 'lucide-react';
+import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings, Loader2, Search, MapPin, ChevronRight } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
 // --- VISTAS ---
@@ -13,6 +13,7 @@ import NetworkingView from './components/views/NetworkingView';
 import ProfileView from './components/views/ProfileView';
 import JobDetailView from './components/views/JobDetailView';
 import CreateJobView from './components/views/CreateJobView';
+import Card from './components/ui/Card'; // Importamos Card para los resultados de búsqueda
 
 // --- MODALES ---
 import ReportJobModal from './components/modals/ReportJobModal';
@@ -20,12 +21,107 @@ import ReportJobModal from './components/modals/ReportJobModal';
 import { DesktopNavLink, NavButton } from './components/ui/NavComponents';
 import { JOBS_DATA } from './data/mockData';
 
+// --- COMPONENTE SEARCHBAR CORREGIDO (RESPONSIVO + FUNCIONAL) ---
+const SearchBar = ({ onSearch }) => {
+  const [query, setQuery] = useState('');
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      onSearch(query);
+    }
+  };
+
+  return (
+    // CAMBIO 1: Eliminado 'hidden lg:flex'. Ahora usa 'flex flex-1' para ocupar espacio disponible en móviles y desktop.
+    <div className="flex flex-1 max-w-md mx-2 md:mx-4 relative group">
+      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+        <Search size={16} className="text-blue-300 group-focus-within:text-yellow-400 transition-colors" />
+      </div>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Buscar..."
+        className="block w-full pl-10 pr-3 py-1.5 border-none rounded-full leading-5 bg-blue-800 text-blue-100 placeholder-blue-300 focus:outline-none focus:bg-blue-700 focus:ring-2 focus:ring-yellow-400 focus:text-white sm:text-sm transition-all duration-200"
+      />
+    </div>
+  );
+};
+
+// --- NUEVA VISTA DE RESULTADOS DE BÚSQUEDA ---
+const SearchView = ({ results, loading, onItemClick }) => {
+  if (loading) return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-blue-600" /></div>;
+
+  const hasResults = results.users.length > 0 || results.jobs.length > 0;
+
+  if (!hasResults) {
+    return (
+      <div className="text-center py-10 text-gray-500">
+        <Search size={48} className="mx-auto mb-4 opacity-20" />
+        <p>No encontramos resultados para tu búsqueda.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 pb-20">
+      <h2 className="text-xl font-bold px-1">Resultados de la búsqueda</h2>
+      
+      {/* RESULTADOS DE USUARIOS/EMPRESAS */}
+      {results.users.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">Personas y Empresas</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {results.users.map(user => (
+              <Card key={user.id} className="p-3 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => onItemClick('profile', user)}>
+                <div className="flex items-center gap-3">
+                  <Avatar initials={user.avatar_initials} src={user.avatar_url} />
+                  <div className="overflow-hidden">
+                    <h4 className="font-bold text-gray-900 dark:text-white truncate">{user.full_name}</h4>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 truncate">{user.role}</p>
+                    {user.company && <p className="text-xs text-gray-500 truncate flex items-center gap-1"><Briefcase size={10}/> {user.company}</p>}
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* RESULTADOS DE EMPLEOS */}
+      {results.jobs.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">Empleos</h3>
+          <div className="space-y-2">
+            {results.jobs.map(job => (
+              <Card key={job.id} className="p-4 hover:border-blue-400 cursor-pointer group" onClick={() => onItemClick('job', job)}>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <h4 className="font-bold text-blue-700 dark:text-blue-300 group-hover:underline">{job.title}</h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">{job.company}</p>
+                    </div>
+                    <ChevronRight className="text-gray-300 group-hover:text-blue-500" size={20}/>
+                </div>
+                <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                    <span className="flex items-center gap-1"><MapPin size={12}/> {job.location}</span>
+                    <span className="text-green-600 font-medium">{job.salary}</span>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('feed'); 
   const [sessionLoading, setSessionLoading] = useState(true);
   
-  // Perfil que se está visualizando (puede ser el mío o de una empresa)
+  // Perfil que se está visualizando
   const [viewedProfile, setViewedProfile] = useState(null);
 
   // --- ESTADOS DE DATOS ---
@@ -43,6 +139,10 @@ function App() {
     const saved = localStorage.getItem('elevin_reported');
     return saved ? JSON.parse(saved) : []; 
   });
+
+  // --- ESTADOS DE BÚSQUEDA (NUEVO) ---
+  const [searchResults, setSearchResults] = useState({ users: [], jobs: [] });
+  const [isSearching, setIsSearching] = useState(false);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [jobToReport, setJobToReport] = useState(null);
@@ -131,7 +231,7 @@ function App() {
     const newJob = {
       id: Date.now(), 
       ...newJobData,
-      user_id: user.id, // Guardamos el ID del creador
+      user_id: user.id, 
       companyAvatar: user.avatar_url,
       companyInitials: user.avatar, 
       postedAt: new Date(),
@@ -145,10 +245,8 @@ function App() {
 
   const handleViewJobDetail = (job) => { setSelectedJob(job); setView('job-detail'); window.scrollTo(0,0); };
   
-  // --- NUEVO: MANEJAR VISITA A PERFIL DE EMPRESA ---
   const handleViewCompanyProfile = async (job) => {
     if (job.user_id) {
-        // Si el empleo tiene un ID de usuario real (creado en la app), buscamos ese perfil
         setSessionLoading(true);
         const profile = await fetchProfile(job.user_id);
         setSessionLoading(false);
@@ -160,7 +258,6 @@ function App() {
             alert("No se pudo cargar el perfil de la empresa.");
         }
     } else {
-        // Si es un dato Mock (falso), creamos un perfil temporal visual
         const mockProfile = {
             id: 'mock-' + job.id,
             name: job.company,
@@ -181,9 +278,80 @@ function App() {
     }
   };
 
+  const handleViewUserProfile = async (userId) => {
+    if (userId === user.id) {
+        handleGoToMyProfile();
+        return;
+    }
+    setSessionLoading(true);
+    const profile = await fetchProfile(userId);
+    setSessionLoading(false);
+    if (profile) {
+        setViewedProfile(profile);
+        setView('profile');
+        window.scrollTo(0,0);
+    } else {
+        alert("Usuario no encontrado o perfil privado.");
+    }
+  };
+
   const handleGoToMyProfile = () => {
-      setViewedProfile(null); // Null significa "Mi propio perfil"
+      setViewedProfile(null);
       setView('profile');
+  };
+
+// --- LÓGICA DE BÚSQUEDA CORREGIDA (Con manejo de errores) ---
+const handlePerformSearch = async (query) => {
+  if (!query.trim()) return;
+  
+  setIsSearching(true);
+  setView('search');
+  window.scrollTo(0,0);
+
+  try {
+      // 1. Buscar Usuarios en Supabase
+      const { data: usersFound, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .ilike('full_name', `%${query}%`)
+          .limit(10);
+      
+      if (error) {
+          console.error('Error de Supabase al buscar:', error);
+          // Si falla la API, asignamos array vacío para no romper la app
+      }
+  
+      // 2. Buscar Empleos (Filtramos el estado local 'jobs')
+      const jobsFound = jobs.filter(job => 
+          job.title.toLowerCase().includes(query.toLowerCase()) || 
+          job.company.toLowerCase().includes(query.toLowerCase())
+      );
+
+      setSearchResults({
+          users: usersFound || [],
+          jobs: jobsFound || []
+      });
+
+  } catch (err) {
+      console.error("Error inesperado ejecutando la búsqueda:", err);
+      // Opcional: alert("Hubo un problema con la búsqueda.");
+  } finally {
+      // ESTO ES LO IMPORTANTE: Se ejecuta SIEMPRE, haya error o no.
+      // Así quitamos el spinner de carga.
+      setIsSearching(false);
+  }
+ };
+
+
+  // Manejar click en resultados de búsqueda
+  const handleSearchResultClick = (type, item) => {
+      if (type === 'profile') {
+          // Reutilizamos lógica de ver perfil
+          handleViewUserProfile(item.id);
+      } else if (type === 'job') {
+          // Reutilizamos lógica de ver empleo
+          handleViewJobDetail(item);
+      }
   };
 
   const handleApplyJob = (jobId, jobTitle) => {
@@ -214,40 +382,44 @@ function App() {
     <div className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-gray-100 font-sans min-h-screen transition-colors duration-300">
       
       <nav className="sticky top-0 z-30 bg-blue-900 text-white shadow-md border-b-4 border-yellow-500">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0">
+        <div className="max-w-7xl mx-auto px-2 md:px-4 h-16 flex items-center justify-between">
+          
+          {/* CAMBIO 2: LOGO RESPONSIVO. Ocultamos el texto en móviles para dar espacio a la barra de búsqueda */}
+          <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0 cursor-pointer" onClick={() => setView('feed')}>
             <ArrowUp className="bg-yellow-400 text-blue-900 p-0.5 rounded" size={28} />
-            <span className="hidden xs:inline">ElevatorConnect</span>
-            <span className="xs:hidden">ElevIn</span>
+            <span className="hidden md:inline">ElevatorConnect</span>
           </div>
 
-          <div className="hidden md:flex h-full items-center gap-1">
+          <div className="hidden md:flex h-full items-center gap-1 ml-4">
              <DesktopNavLink icon={Home} label="Inicio" active={view === 'feed'} onClick={() => setView('feed')} />
              <DesktopNavLink icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
              <DesktopNavLink icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
              <DesktopNavLink icon={LifeBuoy} label="Soporte" active={view === 'support'} onClick={() => setView('support')} />
           </div>
 
+          {/* CAMBIO 3: BARRA DE BÚSQUEDA CONECTADA. Se expande en móviles. */}
+          <SearchBar onSearch={handlePerformSearch} />
+
           <div className="flex items-center gap-2 md:gap-4 shrink-0">
              <button onClick={handleGoToMyProfile} className={`hidden md:flex items-center gap-2 p-1 pr-3 rounded-full transition-colors group ${view === 'profile' && !viewedProfile ? 'bg-blue-800' : 'hover:bg-blue-800'}`}>
                <div className="w-8 h-8 rounded-full bg-blue-700 border border-blue-400 flex items-center justify-center text-xs font-bold text-white overflow-hidden">
                   <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="border-none" />
                </div>
-               <span className="text-xs text-blue-200 font-bold group-hover:text-white">{user.name}</span>
+               <span className="text-xs text-blue-200 font-bold group-hover:text-white max-w-[100px] truncate">{user.name}</span>
              </button>
              <div className="hidden md:block h-6 w-px bg-blue-700 mx-1"></div>
              <button onClick={() => setView('settings')} className={`hidden md:block p-1.5 rounded-full ${view === 'settings' ? 'bg-blue-800 text-white' : 'text-blue-200 hover:bg-blue-800'}`}>
                <Settings size={20} />
              </button>
              <Bell size={20} className="text-blue-200 cursor-pointer hover:text-white" />
-             <button onClick={handleLogout} className="text-blue-200 hover:text-red-300 transition-colors p-1"><LogOut size={20} /></button>
+             <button onClick={handleLogout} className="hidden sm:block text-blue-200 hover:text-red-300 transition-colors p-1"><LogOut size={20} /></button>
           </div>
         </div>
       </nav>
 
       <main className={`min-h-[calc(100vh-4rem)] ${(view === 'job-detail' || view === 'create-job') ? 'w-full' : 'max-w-7xl mx-auto p-4'}`}>
         
-        {view === 'feed' && <FeedView user={user} />}
+        {view === 'feed' && <FeedView user={user} onViewProfile={handleViewUserProfile} />}
         
         {view === 'jobs' && (
           <JobsView 
@@ -267,7 +439,6 @@ function App() {
             userRole={user.role}
             isApplied={appliedJobs.includes(selectedJob?.id)} 
             onReport={handleOpenReport}
-            // AQUÍ PASAMOS LA FUNCIÓN PARA VER LA EMPRESA
             onViewCompany={handleViewCompanyProfile} 
           />
         )}
@@ -280,14 +451,22 @@ function App() {
           />
         )}
 
+        {/* --- CAMBIO 4: RENDERIZADO DE LA VISTA DE BÚSQUEDA --- */}
+        {view === 'search' && (
+            <SearchView 
+                results={searchResults} 
+                loading={isSearching} 
+                onItemClick={handleSearchResultClick} 
+            />
+        )}
+
         {view === 'networking' && <NetworkingView />}
         {view === 'support' && <SupportView />}
         
-        {/* MODIFICADO: ProfileView ahora recibe el usuario actual Y el usuario a ver */}
         {view === 'profile' && (
             <ProfileView 
-                user={viewedProfile || user} // Si hay un perfil visitado, úsalo. Si no, usa el mío.
-                currentUser={user}          // Siempre paso quién soy yo realmente
+                user={viewedProfile || user} 
+                currentUser={user}          
                 onProfileUpdate={handleProfileRefresh} 
             />
         )}
