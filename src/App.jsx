@@ -176,7 +176,8 @@ function App() {
           email: data.email || authData?.user?.email || 'No definido',
           phone: data.phone || 'Sin teléfono',
           certifications: data.certifications || '',
-          projects: data.projects || ''
+          projects: data.projects || '',
+          experience: Array.isArray(data.experience) ? data.experience : (data.experience ? [data.experience] : []),
         };
       }
       return null;
