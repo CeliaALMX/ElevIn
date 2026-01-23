@@ -96,9 +96,7 @@ const LoginScreen = () => {
   const renderCompanyFields = () => (
     <div className="grid grid-cols-1 gap-3 animate-in fade-in slide-in-from-top-1 bg-gray-50 dark:bg-slate-700/30 p-4 rounded-lg border border-gray-100 dark:border-slate-600">
       <div>
-        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Datos Fiscales</label>
-        <input name="legalName" type="text" placeholder="Razón Social (SAT)" value={formData.legalName} onChange={handleChange} required={isCompany}
-          className="w-full p-2 text-sm bg-white border border-gray-200 rounded focus:border-blue-500 outline-none transition-all" />
+        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Datos Fiscales</label>ß
       </div>
       <div className="grid grid-cols-2 gap-2">
         <select name="employeeCount" value={formData.employeeCount} onChange={handleChange}

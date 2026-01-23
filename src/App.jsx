@@ -1,168 +1,95 @@
-import React, { useState, useEffect } from 'react';
-import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings, Loader2, Search, MapPin, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
+import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings, Loader2 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
-// --- VISTAS ---
+// --- COMPONENTES UI (Carga estática porque son pequeños y necesarios siempre) ---
 import LoginScreen from './components/LoginScreen';
 import Avatar from './components/ui/Avatar';
-import FeedView from './components/views/FeedView';
-import SettingsView from './components/views/SettingsView';
-import JobsView from './components/views/JobsView';
-import SupportView from './components/views/SupportView';
-import NetworkingView from './components/views/NetworkingView';
-import ProfileView from './components/views/ProfileView';
-import JobDetailView from './components/views/JobDetailView';
-import CreateJobView from './components/views/CreateJobView';
-import Card from './components/ui/Card'; // Importamos Card para los resultados de búsqueda
-
-// --- MODALES ---
+import { DesktopNavLink, NavButton } from './components/ui/NavComponents';
 import ReportJobModal from './components/modals/ReportJobModal';
 
-import { DesktopNavLink, NavButton } from './components/ui/NavComponents';
+// --- COMPONENTES MODULARIZADOS ---
+import SearchBar from './components/ui/SearchBar';
+
+// --- VISTAS CON LAZY LOADING (Optimización de Carga) ---
+// Usamos React.lazy para importar dinámicamente solo cuando se necesiten
+const FeedView = lazy(() => import('./components/views/FeedView'));
+const JobsView = lazy(() => import('./components/views/JobsView'));
+const NetworkingView = lazy(() => import('./components/views/NetworkingView'));
+const SupportView = lazy(() => import('./components/views/SupportView'));
+const ProfileView = lazy(() => import('./components/views/ProfileView'));
+const SettingsView = lazy(() => import('./components/views/SettingsView'));
+const JobDetailView = lazy(() => import('./components/views/JobDetailView'));
+const CreateJobView = lazy(() => import('./components/views/CreateJobView'));
+const SearchView = lazy(() => import('./components/views/SearchView'));
+
 import { JOBS_DATA } from './data/mockData';
 
-// --- COMPONENTE SEARCHBAR CORREGIDO (RESPONSIVO + FUNCIONAL) ---
-const SearchBar = ({ onSearch }) => {
-  const [query, setQuery] = useState('');
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      onSearch(query);
-    }
-  };
-
-  return (
-    // CAMBIO 1: Eliminado 'hidden lg:flex'. Ahora usa 'flex flex-1' para ocupar espacio disponible en móviles y desktop.
-    <div className="flex flex-1 max-w-md mx-2 md:mx-4 relative group">
-      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-        <Search size={16} className="text-blue-300 group-focus-within:text-yellow-400 transition-colors" />
-      </div>
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Buscar..."
-        className="block w-full pl-10 pr-3 py-1.5 border-none rounded-full leading-5 bg-blue-800 text-blue-100 placeholder-blue-300 focus:outline-none focus:bg-blue-700 focus:ring-2 focus:ring-yellow-400 focus:text-white sm:text-sm transition-all duration-200"
-      />
-    </div>
-  );
-};
-
-// --- NUEVA VISTA DE RESULTADOS DE BÚSQUEDA ---
-const SearchView = ({ results, loading, onItemClick }) => {
-  if (loading) return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-blue-600" /></div>;
-
-  const hasResults = results.users.length > 0 || results.jobs.length > 0;
-
-  if (!hasResults) {
-    return (
-      <div className="text-center py-10 text-gray-500">
-        <Search size={48} className="mx-auto mb-4 opacity-20" />
-        <p>No encontramos resultados para tu búsqueda.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6 pb-20">
-      <h2 className="text-xl font-bold px-1">Resultados de la búsqueda</h2>
-      
-      {/* RESULTADOS DE USUARIOS/EMPRESAS */}
-      {results.users.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">Personas y Empresas</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {results.users.map(user => (
-              <Card key={user.id} className="p-3 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => onItemClick('profile', user)}>
-                <div className="flex items-center gap-3">
-                  <Avatar initials={user.avatar_initials} src={user.avatar_url} />
-                  <div className="overflow-hidden">
-                    <h4 className="font-bold text-gray-900 dark:text-white truncate">{user.full_name}</h4>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 truncate">{user.role}</p>
-                    {user.company && <p className="text-xs text-gray-500 truncate flex items-center gap-1"><Briefcase size={10}/> {user.company}</p>}
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* RESULTADOS DE EMPLEOS */}
-      {results.jobs.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">Empleos</h3>
-          <div className="space-y-2">
-            {results.jobs.map(job => (
-              <Card key={job.id} className="p-4 hover:border-blue-400 cursor-pointer group" onClick={() => onItemClick('job', job)}>
-                <div className="flex justify-between items-start">
-                    <div>
-                        <h4 className="font-bold text-blue-700 dark:text-blue-300 group-hover:underline">{job.title}</h4>
-                        <p className="text-sm text-gray-600 dark:text-gray-300">{job.company}</p>
-                    </div>
-                    <ChevronRight className="text-gray-300 group-hover:text-blue-500" size={20}/>
-                </div>
-                <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                    <span className="flex items-center gap-1"><MapPin size={12}/> {job.location}</span>
-                    <span className="text-green-600 font-medium">{job.salary}</span>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+// Componente de carga para las transiciones entre vistas
+const PageLoader = () => (
+  <div className="flex justify-center items-center h-64">
+    <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
+  </div>
+);
 
 function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('feed'); 
   const [sessionLoading, setSessionLoading] = useState(true);
-  
-  // Perfil que se está visualizando
   const [viewedProfile, setViewedProfile] = useState(null);
 
   // --- ESTADOS DE DATOS ---
   const [jobs, setJobs] = useState(() => {
-    const savedJobs = localStorage.getItem('elevin_jobs');
-    return savedJobs ? JSON.parse(savedJobs) : JOBS_DATA;
+    // Optimización: Try-catch por si el JSON en localStorage está corrupto
+    try {
+        const savedJobs = localStorage.getItem('elevin_jobs');
+        return savedJobs ? JSON.parse(savedJobs) : JOBS_DATA;
+    } catch (e) { return JOBS_DATA; }
   });
 
   const [appliedJobs, setAppliedJobs] = useState(() => {
-    const saved = localStorage.getItem('elevin_applications');
-    return saved ? JSON.parse(saved) : []; 
+    try {
+        const saved = localStorage.getItem('elevin_applications');
+        return saved ? JSON.parse(saved) : [];
+    } catch (e) { return []; }
   });
 
   const [reportedJobs, setReportedJobs] = useState(() => {
-    const saved = localStorage.getItem('elevin_reported');
-    return saved ? JSON.parse(saved) : []; 
+    try {
+        const saved = localStorage.getItem('elevin_reported');
+        return saved ? JSON.parse(saved) : [];
+    } catch (e) { return []; }
   });
 
-  // --- ESTADOS DE BÚSQUEDA (NUEVO) ---
   const [searchResults, setSearchResults] = useState({ users: [], jobs: [] });
   const [isSearching, setIsSearching] = useState(false);
-
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [jobToReport, setJobToReport] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    const savedTheme = localStorage.getItem('theme');
-    return savedTheme === 'light' ? false : true;
+    return localStorage.getItem('theme') === 'dark';
   });
 
+  // Persistencia
   useEffect(() => { localStorage.setItem('elevin_jobs', JSON.stringify(jobs)); }, [jobs]);
   useEffect(() => { localStorage.setItem('elevin_applications', JSON.stringify(appliedJobs)); }, [appliedJobs]);
   useEffect(() => { localStorage.setItem('elevin_reported', JSON.stringify(reportedJobs)); }, [reportedJobs]);
 
+  // --- LÓGICA DE USUARIO ---
   const fetchProfile = async (userId) => {
     try {
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-      const { data: authData } = await supabase.auth.getUser();
-      
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      if (error) throw error; // Lanzar error para que lo capture el catch
+
       if (data) {
+        // Obtenemos el email solo si es necesario, auth.getUser() es una llamada extra
+        let email = data.email;
+        if (!email) {
+            const { data: authData } = await supabase.auth.getUser();
+            email = authData?.user?.email || 'No definido';
+        }
+
         return { 
           id: data.id, 
           name: data.full_name, 
@@ -173,7 +100,7 @@ function App() {
           bio: data.bio, 
           company: data.company || 'Independiente', 
           location: data.location,
-          email: data.email || authData?.user?.email || 'No definido',
+          email: email,
           phone: data.phone || 'Sin teléfono',
           certifications: data.certifications || '',
           projects: data.projects || '',
@@ -181,30 +108,37 @@ function App() {
         };
       }
       return null;
-    } catch (error) { console.error(error); return null; }
+    } catch (error) { 
+        console.error("Error fetching profile:", error); 
+        return null; 
+    }
   };
 
   useEffect(() => {
+    let mounted = true;
     const init = async () => { 
         const { data: { session } } = await supabase.auth.getSession(); 
-        if (session) {
+        if (session && mounted) {
             const profile = await fetchProfile(session.user.id);
-            setUser(profile);
+            if (mounted) setUser(profile);
         }
-        setSessionLoading(false); 
+        if (mounted) setSessionLoading(false); 
     };
     init();
     
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => { 
         if (session) {
             const profile = await fetchProfile(session.user.id);
-            setUser(profile);
+            if (mounted) setUser(profile);
         } else { 
-            setUser(null); 
+            if (mounted) setUser(null); 
         }
-        setSessionLoading(false);
+        if (mounted) setSessionLoading(false);
     });
-    return () => subscription.unsubscribe();
+    return () => {
+        mounted = false;
+        subscription.unsubscribe();
+    };
   }, []);
 
   const handleProfileRefresh = async () => { 
@@ -225,7 +159,6 @@ function App() {
   }, [isDarkMode]);
 
   const handleLogout = async () => { await supabase.auth.signOut(); setUser(null); setView('feed'); };
-
   const handleGoToCreateJob = () => { setView('create-job'); window.scrollTo(0,0); };
 
   const handleCreateJob = (newJobData) => {
@@ -238,7 +171,7 @@ function App() {
       postedAt: new Date(),
       postedAtRelative: 'Hace un momento'
     };
-    setJobs([newJob, ...jobs]);
+    setJobs(prev => [newJob, ...prev]);
     alert('¡Empleo publicado exitosamente!');
     setView('jobs'); 
     window.scrollTo(0,0);
@@ -248,17 +181,17 @@ function App() {
   
   const handleViewCompanyProfile = async (job) => {
     if (job.user_id) {
-        setSessionLoading(true);
+        // Evitamos loading global si es posible, pero aquí está bien
         const profile = await fetchProfile(job.user_id);
-        setSessionLoading(false);
         if (profile) {
             setViewedProfile(profile);
             setView('profile');
             window.scrollTo(0,0);
         } else {
-            alert("No se pudo cargar el perfil de la empresa.");
+            alert("No se pudo cargar el perfil.");
         }
     } else {
+        // MOCK fallback
         const mockProfile = {
             id: 'mock-' + job.id,
             name: job.company,
@@ -267,11 +200,11 @@ function App() {
             avatar_url: job.companyAvatar,
             company: job.company,
             location: job.location,
-            bio: `Perfil corporativo de ${job.company}. Empresa líder en el sector de elevación.`,
+            bio: `Perfil corporativo de ${job.company}.`,
             email: 'contacto@empresa.com',
             phone: '55 1234 5678',
-            projects: 'Mantenimiento en Torre Reforma\nModernización Metro CDMX',
-            certifications: 'ISO 9001\nDC-3 Alturas'
+            projects: 'Mantenimiento General',
+            certifications: 'ISO 9001'
         };
         setViewedProfile(mockProfile);
         setView('profile');
@@ -284,15 +217,13 @@ function App() {
         handleGoToMyProfile();
         return;
     }
-    setSessionLoading(true);
     const profile = await fetchProfile(userId);
-    setSessionLoading(false);
     if (profile) {
         setViewedProfile(profile);
         setView('profile');
         window.scrollTo(0,0);
     } else {
-        alert("Usuario no encontrado o perfil privado.");
+        alert("Usuario no encontrado.");
     }
   };
 
@@ -301,70 +232,50 @@ function App() {
       setView('profile');
   };
 
-// --- LÓGICA DE BÚSQUEDA CORREGIDA (Con manejo de errores) ---
-const handlePerformSearch = async (query) => {
-  if (!query.trim()) return;
-  
-  setIsSearching(true);
-  setView('search');
-  window.scrollTo(0,0);
+  const handlePerformSearch = async (query) => {
+    if (!query.trim()) return;
+    setIsSearching(true);
+    setView('search');
+    window.scrollTo(0,0);
 
-  try {
-      // 1. Buscar Usuarios en Supabase
-      const { data: usersFound, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .ilike('full_name', `%${query}%`)
-          .limit(10);
-      
-      if (error) {
-          console.error('Error de Supabase al buscar:', error);
-          // Si falla la API, asignamos array vacío para no romper la app
-      }
-  
-      // 2. Buscar Empleos (Filtramos el estado local 'jobs')
-      const jobsFound = jobs.filter(job => 
-          job.title.toLowerCase().includes(query.toLowerCase()) || 
-          job.company.toLowerCase().includes(query.toLowerCase())
-      );
+    try {
+        const { data: usersFound } = await supabase
+            .from('profiles')
+            .select('*')
+            .ilike('full_name', `%${query}%`)
+            .limit(10);
+        
+        const jobsFound = jobs.filter(job => 
+            job.title.toLowerCase().includes(query.toLowerCase()) || 
+            job.company.toLowerCase().includes(query.toLowerCase())
+        );
 
-      setSearchResults({
-          users: usersFound || [],
-          jobs: jobsFound || []
-      });
-
-  } catch (err) {
-      console.error("Error inesperado ejecutando la búsqueda:", err);
-      // Opcional: alert("Hubo un problema con la búsqueda.");
-  } finally {
-      // ESTO ES LO IMPORTANTE: Se ejecuta SIEMPRE, haya error o no.
-      // Así quitamos el spinner de carga.
-      setIsSearching(false);
-  }
- };
-
-
-  // Manejar click en resultados de búsqueda
-  const handleSearchResultClick = (type, item) => {
-      if (type === 'profile') {
-          // Reutilizamos lógica de ver perfil
-          handleViewUserProfile(item.id);
-      } else if (type === 'job') {
-          // Reutilizamos lógica de ver empleo
-          handleViewJobDetail(item);
-      }
+        setSearchResults({
+            users: usersFound || [],
+            jobs: jobsFound || []
+        });
+    } catch (err) {
+        console.error("Search error:", err);
+    } finally {
+        setIsSearching(false);
+    }
   };
 
-  const handleApplyJob = (jobId, jobTitle) => {
-    if (!appliedJobs.includes(jobId)) { setAppliedJobs([...appliedJobs, jobId]); }
+  const handleSearchResultClick = (type, item) => {
+      if (type === 'profile') handleViewUserProfile(item.id);
+      else if (type === 'job') handleViewJobDetail(item);
+  };
+
+  const handleApplyJob = (jobId) => {
+    if (!appliedJobs.includes(jobId)) setAppliedJobs(prev => [...prev, jobId]);
   };
 
   const handleOpenReport = (job) => { setJobToReport(job); setIsReportModalOpen(true); };
 
-  const handleSubmitReport = (reportData) => {
+  const handleSubmitReport = () => {
     if (jobToReport) {
-      setReportedJobs([...reportedJobs, jobToReport.id]);
-      alert("Gracias. Hemos recibido tu reporte.");
+      setReportedJobs(prev => [...prev, jobToReport.id]);
+      alert("Reporte recibido.");
       setIsReportModalOpen(false);
       setJobToReport(null);
       if (view === 'job-detail' && selectedJob?.id === jobToReport.id) {
@@ -376,16 +287,17 @@ const handlePerformSearch = async (query) => {
 
   const visibleJobs = jobs.filter(job => !reportedJobs.includes(job.id));
 
+  // Render condicional temprano
   if (sessionLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900"><Loader2 className="animate-spin text-blue-600 w-10 h-10"/></div>;
   if (!user) return <LoginScreen />;
 
   return (
     <div className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-gray-100 font-sans min-h-screen transition-colors duration-300">
       
+      {/* NAVBAR */}
       <nav className="sticky top-0 z-30 bg-blue-900 text-white shadow-md border-b-4 border-yellow-500">
         <div className="max-w-7xl mx-auto px-2 md:px-4 h-16 flex items-center justify-between">
           
-          {/* CAMBIO 2: LOGO RESPONSIVO. Ocultamos el texto en móviles para dar espacio a la barra de búsqueda */}
           <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0 cursor-pointer" onClick={() => setView('feed')}>
             <ArrowUp className="bg-yellow-400 text-blue-900 p-0.5 rounded" size={28} />
             <span className="hidden md:inline">ElevatorConnect</span>
@@ -398,7 +310,6 @@ const handlePerformSearch = async (query) => {
              <DesktopNavLink icon={LifeBuoy} label="Soporte" active={view === 'support'} onClick={() => setView('support')} />
           </div>
 
-          {/* CAMBIO 3: BARRA DE BÚSQUEDA CONECTADA. Se expande en móviles. */}
           <SearchBar onSearch={handlePerformSearch} />
 
           <div className="flex items-center gap-2 md:gap-4 shrink-0">
@@ -419,60 +330,61 @@ const handlePerformSearch = async (query) => {
       </nav>
 
       <main className={`min-h-[calc(100vh-4rem)] ${(view === 'job-detail' || view === 'create-job') ? 'w-full' : 'max-w-7xl mx-auto p-4'}`}>
-        
-        {view === 'feed' && <FeedView user={user} onViewProfile={handleViewUserProfile} />}
-        
-        {view === 'jobs' && (
-          <JobsView 
-            jobs={visibleJobs} 
-            userRole={user.role}
-            onCreateJobClick={handleGoToCreateJob} 
-            onViewDetail={handleViewJobDetail} 
-            appliedJobs={appliedJobs} 
-          />
-        )}
+        {/* SUSPENSE: Muestra el PageLoader mientras se descarga el código de la vista */}
+        <Suspense fallback={<PageLoader />}>
+            {view === 'feed' && <FeedView user={user} onViewProfile={handleViewUserProfile} />}
+            
+            {view === 'jobs' && (
+              <JobsView 
+                jobs={visibleJobs} 
+                userRole={user.role}
+                onCreateJobClick={handleGoToCreateJob} 
+                onViewDetail={handleViewJobDetail} 
+                appliedJobs={appliedJobs} 
+              />
+            )}
 
-        {view === 'job-detail' && (
-          <JobDetailView 
-            job={selectedJob} 
-            onBack={() => setView('jobs')} 
-            onApply={handleApplyJob} 
-            userRole={user.role}
-            isApplied={appliedJobs.includes(selectedJob?.id)} 
-            onReport={handleOpenReport}
-            onViewCompany={handleViewCompanyProfile} 
-          />
-        )}
+            {view === 'job-detail' && (
+              <JobDetailView 
+                job={selectedJob} 
+                onBack={() => setView('jobs')} 
+                onApply={handleApplyJob} 
+                userRole={user.role}
+                isApplied={appliedJobs.includes(selectedJob?.id)} 
+                onReport={handleOpenReport}
+                onViewCompany={handleViewCompanyProfile} 
+              />
+            )}
 
-        {view === 'create-job' && (
-          <CreateJobView
-             onCreate={handleCreateJob}
-             onCancel={() => setView('jobs')}
-             currentUser={user}
-          />
-        )}
+            {view === 'create-job' && (
+              <CreateJobView
+                 onCreate={handleCreateJob}
+                 onCancel={() => setView('jobs')}
+                 currentUser={user}
+              />
+            )}
 
-        {/* --- CAMBIO 4: RENDERIZADO DE LA VISTA DE BÚSQUEDA --- */}
-        {view === 'search' && (
-            <SearchView 
-                results={searchResults} 
-                loading={isSearching} 
-                onItemClick={handleSearchResultClick} 
-            />
-        )}
+            {view === 'search' && (
+                <SearchView 
+                    results={searchResults} 
+                    loading={isSearching} 
+                    onItemClick={handleSearchResultClick} 
+                />
+            )}
 
-        {view === 'networking' && <NetworkingView />}
-        {view === 'support' && <SupportView />}
-        
-        {view === 'profile' && (
-            <ProfileView 
-                user={viewedProfile || user} 
-                currentUser={user}          
-                onProfileUpdate={handleProfileRefresh} 
-            />
-        )}
-        
-        {view === 'settings' && <SettingsView isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />}
+            {view === 'networking' && <NetworkingView />}
+            {view === 'support' && <SupportView />}
+            
+            {view === 'profile' && (
+                <ProfileView 
+                    user={viewedProfile || user} 
+                    currentUser={user}          
+                    onProfileUpdate={handleProfileRefresh} 
+                />
+            )}
+            
+            {view === 'settings' && <SettingsView isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />}
+        </Suspense>
       </main>
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t dark:border-slate-700 flex justify-around p-2 pb-safe z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
