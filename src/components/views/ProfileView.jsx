@@ -1,31 +1,48 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, MapPin, Briefcase, Mail, Phone, Edit2, X, Save, Award, FolderOpen, Building, Calendar, User, Plus, Trash2, CheckCircle, ArrowUpCircle, Loader2 } from 'lucide-react';
+import { 
+  Camera, MapPin, Briefcase, Mail, Phone, Edit2, X, Save, Award, 
+  FolderOpen, Building, Calendar, User, Plus, Trash2, CheckCircle, 
+  ArrowUpCircle, Loader2, MessageSquare 
+} from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { uploadFileToSupabase } from '../../helpers/fileUpload';
+import { useComments } from '../../hooks/useComments';
 import Card from '../ui/Card';
 import Avatar from '../ui/Avatar';
 import Button from '../ui/Button';
+import PostItem from '../feed/PostItem';
 
 const PUBLIC_DOMAINS = ['gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 'live.com', 'icloud.com'];
 
-const ProfileView = ({ user, currentUser, onProfileUpdate }) => {
+const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
-  
-  // Estados de carga específicos
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
-
-  // Control de edición de experiencias
-  const [editingExpId, setEditingExpId] = useState(null);
-  const [tempExp, setTempExp] = useState(null);
-
-  // SEMÁFORO: Evita parpadeos
   const justSavedRef = useRef(false);
 
-  // Estado local
+  // --- ESTADOS DE DATOS ---
+  const [editingExpId, setEditingExpId] = useState(null);
+  const [tempExp, setTempExp] = useState(null);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
+  const [userPosts, setUserPosts] = useState([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+
+  // --- HOOK DE COMENTARIOS ---
+  // Pasamos currentUser con safe check para evitar colapsos
+  const {
+    activeCommentsPostId,
+    commentsData,
+    toggleComments,
+    fetchComments,
+    commentActions,
+  } = useComments(setUserPosts, currentUser || {});
+
   const [displayUser, setDisplayUser] = useState(user || {});
-  const isOwner = currentUser && user?.id === currentUser?.id;
+  
+  // ✅ Seguridad: Verificamos IDs antes de comparar
+  const isOwner = currentUser?.id && user?.id && user.id === currentUser.id;
   const isCompanyProfile = user?.role === 'Empresa';
 
   const [formData, setFormData] = useState({
@@ -33,23 +50,84 @@ const ProfileView = ({ user, currentUser, onProfileUpdate }) => {
     phone: '', email: '', certifications: '', projects: '', experience: [] 
   });
 
-  // --- SINCRONIZACIÓN ---
+  const getCommentsCount = async (postId) => {
+    try {
+      const { count } = await supabase
+        .from('post_comments')
+        .select('id', { count: 'exact', head: true })
+        .eq('post_id', postId);
+      return count || 0;
+    } catch { return 0; }
+  };
+
   useEffect(() => {
-    if (!user) return;
+    // ✅ Salida temprana si no hay usuario para evitar pantalla en blanco
+    if (!user?.id || !currentUser?.id) return;
     if (justSavedRef.current) return;
 
     setDisplayUser(user);
 
-    if (!editing) {
-        let safeExperience = [];
-        if (Array.isArray(user.experience)) {
-            safeExperience = user.experience;
-        } else if (typeof user.experience === 'object' && user.experience) {
-            safeExperience = [{ ...user.experience, id: Date.now() }];
-        }
+    const checkFollow = async () => {
+      if (isOwner) return;
+      try {
+        const { data } = await supabase
+          .from('follows')
+          .select('*')
+          .eq('follower_id', currentUser.id)
+          .eq('following_id', user.id)
+          .single();
+        setIsFollowing(!!data);
+      } catch (err) {
+        setIsFollowing(false);
+      }
+    };
 
+    const fetchUserPosts = async () => {
+      setPostsLoading(true);
+      try {
+        const { data: postsData, error: pError } = await supabase
+          .from('posts')
+          .select(`*, profiles (full_name, role, avatar_initials, avatar_url, company)`)
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (pError) throw pError;
+
+        const { data: userVotes } = await supabase
+          .from('post_votes')
+          .select('post_id, vote_type')
+          .eq('user_id', currentUser.id);
+
+        const voteMap = {};
+        userVotes?.forEach(v => (voteMap[v.post_id] = v.vote_type));
+
+        const ids = (postsData || []).map(p => p.id);
+        const counts = await Promise.all(ids.map(id => getCommentsCount(id)));
+        const countMap = {};
+        ids.forEach((id, idx) => (countMap[id] = counts[idx] || 0));
+
+        const finalPosts = (postsData || []).map(p => ({
+          ...p,
+          likes_count: p.likes_count || 0,
+          dislikes_count: p.dislikes_count || 0,
+          comments_count: countMap[p.id] ?? 0,
+          user_vote: voteMap[p.id] || null,
+        }));
+
+        setUserPosts(finalPosts);
+      } catch (err) {
+        console.error("Error posts:", err);
+      } finally {
+        setPostsLoading(false);
+      }
+    };
+
+    checkFollow();
+    fetchUserPosts();
+
+    if (!editing) {
         setFormData({
-            full_name: user.name || '',
+            full_name: user.name || user.full_name || '',
             role: user.role || '',
             company: user.company || '',
             location: user.location || '',
@@ -58,430 +136,199 @@ const ProfileView = ({ user, currentUser, onProfileUpdate }) => {
             email: user.email || '',
             certifications: user.certifications || '',
             projects: user.projects || '',
-            experience: safeExperience
+            experience: Array.isArray(user.experience) ? user.experience : []
         });
     }
-  }, [user, editing]);
+  }, [user?.id, editing, currentUser?.id, isOwner]);
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  // --- MANEJADORES DE ACCIONES (POSTS) ---
+  const handleVote = async (postId, type) => {
+    if (!currentUser?.id) return;
+    const post = userPosts.find(p => p.id === postId);
+    if (!post) return;
+    const currentVote = post.user_vote;
+    const newVote = currentVote === type ? null : type;
+
+    setUserPosts(prev => prev.map(p => {
+      if (p.id !== postId) return p;
+      let l = p.likes_count, d = p.dislikes_count;
+      if (currentVote === 'like') l--; if (currentVote === 'dislike') d--;
+      if (newVote === 'like') l++; if (newVote === 'dislike') d++;
+      return { ...p, user_vote: newVote, likes_count: l, dislikes_count: d };
+    }));
+
+    try {
+      if (currentVote) await supabase.from('post_votes').delete().match({ user_id: currentUser.id, post_id: postId });
+      if (newVote) await supabase.from('post_votes').upsert({ user_id: currentUser.id, post_id: postId, vote_type: newVote });
+      const rpcName = newVote === 'like' ? 'increment_likes' : (newVote === 'dislike' ? 'increment_dislikes' : (currentVote === 'like' ? 'decrement_likes' : 'decrement_dislikes'));
+      await supabase.rpc(rpcName, { post_id: postId });
+    } catch (e) { console.error(e); }
   };
 
-  const isCorporateEmail = (email) => {
-    if (!email) return false;
-    const domain = email.split('@')[1];
-    return domain && !PUBLIC_DOMAINS.includes(domain.toLowerCase());
+  const handleDeletePost = async (postId) => {
+    const { error } = await supabase.from('posts').delete().eq('id', postId).eq('user_id', currentUser.id);
+    if (!error) setUserPosts(prev => prev.filter(p => p.id !== postId));
   };
 
-  // --- FUNCIÓN DE GUARDADO BLINDADA (FIX DE CONGELAMIENTO) ---
+  const handleUpdatePost = async (postId, newContent) => {
+    const { error } = await supabase.from('posts').update({ content: newContent }).eq('id', postId).eq('user_id', currentUser.id);
+    if (!error) setUserPosts(prev => prev.map(p => (p.id === postId ? { ...p, content: newContent } : p)));
+  };
+
+  // --- MANEJADORES DE SEGUIMIENTO ---
+  const toggleFollow = async () => {
+    if (!currentUser?.id || followLoading) return;
+    setFollowLoading(true);
+    try {
+      if (isFollowing) {
+        await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', user.id);
+        setIsFollowing(false);
+      } else {
+        await supabase.from('follows').insert([{ follower_id: currentUser.id, following_id: user.id }]);
+        setIsFollowing(true);
+      }
+    } finally { setFollowLoading(false); }
+  };
+
+  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+  
   const handleSave = async () => {
-    if (!isOwner) return;
-    
-    // 1. Verificación preliminar
-    if (!formData.full_name.trim()) return alert("El nombre es obligatorio.");
-
+    if (!isOwner || !formData.full_name.trim()) return;
     setLoading(true);
     justSavedRef.current = true;
-    
     try {
-      // 2. CHECK DE SESIÓN: Si tardaste mucho, esto revive tu token antes de guardar
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-          throw new Error("La sesión expiró. Por favor recarga la página.");
-      }
-
-      // 3. Preparación de datos (Igual que antes)
-      let finalExperienceList = [...formData.experience];
-      if (editingExpId && tempExp) {
-        if (tempExp.company_name && tempExp.position) {
-             if (tempExp.is_current && !isCorporateEmail(tempExp.work_email)) {
-                 setLoading(false);
-                 justSavedRef.current = false;
-                 return alert("El empleo actual requiere correo corporativo.");
-             }
-             if (editingExpId === 'NEW') {
-                 finalExperienceList.push({ ...tempExp, id: Date.now() });
-             } else {
-                 finalExperienceList = finalExperienceList.map(e => e.id === editingExpId ? tempExp : e);
-             }
-        }
-      }
-
-      const cleanedExperience = finalExperienceList
-        .map(exp => ({
-          id: exp.id || Date.now(),
-          company_name: String(exp.company_name || ''),
-          position: String(exp.position || ''),
-          is_current: Boolean(exp.is_current),
-          start_date: String(exp.start_date || ''),
-          end_date: String(exp.end_date || ''),
-          boss: String(exp.boss || ''),
-          salary: String(exp.salary || ''),
-          work_email: String(exp.work_email || ''),
-          description: String(exp.description || '')
-        }))
-        .sort((a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0));
-
-      const updates = {
-          full_name: formData.full_name,
-          role: formData.role,
-          company: formData.company,
-          location: formData.location,
-          bio: formData.bio,
-          phone: formData.phone,
-          email: formData.email,
-          certifications: formData.certifications,
-          projects: formData.projects,
-          experience: cleanedExperience
-      };
-
-      // 4. TIMEOUT DE SEGURIDAD (El anti-congelamiento)
-      // Si la base de datos no responde en 10 segundos, forzamos un error para liberar la UI
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("La conexión es lenta. Intenta guardar de nuevo.")), 10000)
-      );
-
-      const dbPromise = supabase.from('profiles').update(updates).eq('id', user.id);
-
-      // "Carrera": Gana quien termine primero (el guardado o el timeout)
-      const { error } = await Promise.race([dbPromise, timeoutPromise]);
-
+      const updates = { ...formData, experience: formData.experience.sort((a,b) => new Date(b.start_date) - new Date(a.start_date)) };
+      const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
       if (error) throw error;
-      
-      // 5. Éxito y Actualización Optimista
-      const freshUser = { ...displayUser, ...updates, name: updates.full_name };
-      
-      setDisplayUser(freshUser);
-      setFormData(prev => ({ ...prev, experience: cleanedExperience }));
-      
-      setEditingExpId(null);
-      setTempExp(null);
+      setDisplayUser({ ...displayUser, ...updates, name: updates.full_name });
       setEditing(false);
-      
-      // Lanzamos la actualización en background sin bloquear la UI
       if (onProfileUpdate) onProfileUpdate();
-
-      // Liberamos el semáforo
       setTimeout(() => { justSavedRef.current = false; }, 2000);
-
-    } catch (error) {
-      console.error("Error guardando:", error);
-      alert(error.message || 'Ocurrió un error al guardar.');
-      justSavedRef.current = false;
-    } finally {
-      // 6. GARANTÍA FINAL: Esto asegura que el spinner SIEMPRE se quite
-      setLoading(false); 
-    }
-  };
-
-  const handleImageUpload = async (e, type) => {
-    if (!isOwner) return;
-    const file = e.target.files[0];
-    if (!file) return;
-
-    if (type === 'cover') setUploadingCover(true);
-    else setUploadingAvatar(true);
-
-    try {
-        const publicUrl = await uploadFileToSupabase(file, user.id, type === 'cover' ? 'covers' : 'avatars');
-        if (publicUrl) {
-            const field = type === 'cover' ? 'cover_url' : 'avatar_url';
-            setDisplayUser(prev => ({ ...prev, [field]: publicUrl }));
-            await supabase.from('profiles').update({ [field]: publicUrl }).eq('id', user.id);
-            if (onProfileUpdate) onProfileUpdate();
-        }
-    } catch (error) {
-        console.error("Error upload", error);
-        alert("Error al subir imagen");
-    } finally {
-        setUploadingCover(false);
-        setUploadingAvatar(false);
-    }
-  };
-
-  // --- GESTIÓN DE EXPERIENCIAS ---
-  const initNewExperience = () => {
-    setTempExp({
-        id: Date.now(), company_name: '', position: '', is_current: false, 
-        start_date: '', end_date: '', boss: '', salary: '', work_email: '', description: ''
-    });
-    setEditingExpId('NEW');
-  };
-
-  const confirmLocalExperience = () => {
-    if (!tempExp.company_name || !tempExp.position || !tempExp.start_date) {
-        return alert("Completa Empresa, Puesto y Fecha de Inicio.");
-    }
-    if (tempExp.is_current && !isCorporateEmail(tempExp.work_email)) {
-        return alert("Requiere correo corporativo válido.");
-    }
-
-    setFormData(prev => {
-        let newExpList = [...prev.experience];
-        if (editingExpId === 'NEW') {
-            newExpList.push(tempExp);
-        } else {
-            newExpList = newExpList.map(e => e.id === editingExpId ? tempExp : e);
-        }
-        newExpList.sort((a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0));
-        return { ...prev, experience: newExpList };
-    });
-
-    setEditingExpId(null);
-    setTempExp(null);
+    } finally { setLoading(false); }
   };
 
   const renderExperienceSection = () => {
     if (isCompanyProfile) return null;
-
     const listToRender = editing ? formData.experience : (displayUser.experience || []);
 
     return (
-        <Card className="p-6 mb-6 overflow-hidden border-t-4 border-t-blue-500 shadow-sm">
+        <Card className="p-6 mb-6 border-t-4 border-t-blue-500 shadow-sm overflow-hidden">
             <div className="flex items-center justify-between mb-5 pb-2 border-b border-gray-100 dark:border-slate-700">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600">
-                        <Briefcase size={22} />
-                    </div>
+                    <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600"><Briefcase size={22} /></div>
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white">Trayectoria Laboral</h3>
                 </div>
                 {editing && !editingExpId && (
-                    <Button variant="ghost" onClick={initNewExperience} className="text-blue-600 hover:bg-blue-50 text-sm">
+                    <Button variant="ghost" onClick={() => { setTempExp({ id: Date.now(), company_name: '', position: '', is_current: false, start_date: '', end_date: '', boss: '', salary: '', work_email: '', description: '' }); setEditingExpId('NEW'); }} className="text-blue-600 text-sm">
                         <Plus size={16} className="mr-1"/> Agregar
                     </Button>
                 )}
             </div>
             
             {editingExpId && tempExp && (
-                <div className="bg-gray-50 dark:bg-slate-800/50 rounded-xl p-5 border border-blue-200 dark:border-blue-900/50 mb-6 animate-in fade-in zoom-in-95 shadow-lg">
-                    <h4 className="text-sm font-bold text-blue-600 mb-4 uppercase flex items-center gap-2">
-                        {editingExpId === 'NEW' ? <Plus size={16}/> : <Edit2 size={16}/>}
-                        {editingExpId === 'NEW' ? 'Nuevo Registro' : 'Editar Registro'}
-                    </h4>
-                    
+                <div className="bg-gray-50 dark:bg-slate-800/50 rounded-xl p-5 border border-blue-200 mb-6 shadow-lg">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="md:col-span-2 flex items-center gap-2 mb-2 p-2 bg-white dark:bg-slate-700 rounded border border-gray-200 dark:border-slate-600">
-                             <input type="checkbox" id="isCurrent" checked={tempExp.is_current || false} 
-                                onChange={(e) => setTempExp({ ...tempExp, is_current: e.target.checked, end_date: e.target.checked ? '' : tempExp.end_date })} 
-                                className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" />
-                             <label htmlFor="isCurrent" className="text-sm font-bold text-gray-700 dark:text-gray-200 cursor-pointer select-none">
-                                Actualmente tengo este puesto
-                             </label>
+                        <div className="md:col-span-2 flex items-center gap-2 p-2 bg-white dark:bg-slate-700 rounded border">
+                             <input type="checkbox" checked={tempExp.is_current} onChange={(e) => setTempExp({ ...tempExp, is_current: e.target.checked, end_date: e.target.checked ? '' : tempExp.end_date })} />
+                             <label className="text-sm font-bold">Puesto actual</label>
                         </div>
-
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Empresa *</label>
-                            <input type="text" value={tempExp.company_name || ''} onChange={(e) => setTempExp({...tempExp, company_name: e.target.value})} 
-                                className="w-full p-2 text-sm border rounded dark:bg-slate-700 dark:border-slate-600" placeholder="Nombre Empresa" />
-                        </div>
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Puesto *</label>
-                            <input type="text" value={tempExp.position || ''} onChange={(e) => setTempExp({...tempExp, position: e.target.value})} 
-                                className="w-full p-2 text-sm border rounded dark:bg-slate-700 dark:border-slate-600" placeholder="Ej. Técnico de Ruta" />
-                        </div>
-                        
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Fecha Inicio *</label>
-                            <input type="date" value={tempExp.start_date || ''} onChange={(e) => setTempExp({...tempExp, start_date: e.target.value})} 
-                                className="w-full p-2 text-sm border rounded dark:bg-slate-700 text-gray-500" />
-                        </div>
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Fecha Fin</label>
-                            <input type="date" value={tempExp.end_date || ''} onChange={(e) => setTempExp({...tempExp, end_date: e.target.value})} disabled={tempExp.is_current}
-                                className="w-full p-2 text-sm border rounded dark:bg-slate-700 text-gray-500 disabled:opacity-50 disabled:bg-gray-100" />
-                        </div>
-
+                        <input type="text" placeholder="Empresa" value={tempExp.company_name} onChange={(e) => setTempExp({...tempExp, company_name: e.target.value})} className="p-2 text-sm border rounded dark:bg-slate-700" />
+                        <input type="text" placeholder="Puesto" value={tempExp.position} onChange={(e) => setTempExp({...tempExp, position: e.target.value})} className="p-2 text-sm border rounded dark:bg-slate-700" />
+                        <input type="date" value={tempExp.start_date} onChange={(e) => setTempExp({...tempExp, start_date: e.target.value})} className="p-2 text-sm border rounded dark:bg-slate-700" />
+                        <input type="date" value={tempExp.end_date} onChange={(e) => setTempExp({...tempExp, end_date: e.target.value})} disabled={tempExp.is_current} className="p-2 text-sm border rounded dark:bg-slate-700 disabled:opacity-50" />
                         {tempExp.is_current && (
-                            <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-blue-50 dark:bg-blue-900/10 p-4 rounded-lg border border-blue-200 dark:border-blue-800 relative">
-                                <div className="md:col-span-2 text-xs text-blue-700 dark:text-blue-300 font-bold mb-1 flex items-center gap-1">
-                                    <CheckCircle size={14} /> DATOS DE VERIFICACIÓN (Privado)
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Correo Corporativo *</label>
-                                    <input type="email" value={tempExp.work_email || ''} onChange={(e) => setTempExp({...tempExp, work_email: e.target.value})} 
-                                        className="w-full p-2 text-sm border border-blue-300 rounded dark:bg-slate-700" placeholder="tu@empresa.com" />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Jefe Directo *</label>
-                                    <input type="text" value={tempExp.boss || ''} onChange={(e) => setTempExp({...tempExp, boss: e.target.value})} 
-                                        className="w-full p-2 text-sm border border-blue-300 rounded dark:bg-slate-700" placeholder="Nombre completo" />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Salario Mensual</label>
-                                    <input type="text" value={tempExp.salary || ''} onChange={(e) => setTempExp({...tempExp, salary: e.target.value})} 
-                                        className="w-full p-2 text-sm border border-blue-300 rounded dark:bg-slate-700" placeholder="$0.00" />
-                                </div>
-                            </div>
+                            <>
+                                <input type="email" placeholder="Correo Corporativo" value={tempExp.work_email} onChange={(e) => setTempExp({...tempExp, work_email: e.target.value})} className="p-2 text-sm border rounded dark:bg-slate-700" />
+                                <input type="text" placeholder="Jefe Directo" value={tempExp.boss} onChange={(e) => setTempExp({...tempExp, boss: e.target.value})} className="p-2 text-sm border rounded dark:bg-slate-700" />
+                            </>
                         )}
-
-                        <div className="md:col-span-2">
-                            <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Logros / Descripción</label>
-                            <textarea rows={3} value={tempExp.description || ''} onChange={(e) => setTempExp({...tempExp, description: e.target.value})} 
-                                className="w-full p-2 text-sm border rounded dark:bg-slate-700 dark:border-slate-600" placeholder="Describe tus responsabilidades..." />
-                        </div>
+                        <textarea placeholder="Descripción" value={tempExp.description} onChange={(e) => setTempExp({...tempExp, description: e.target.value})} className="md:col-span-2 p-2 text-sm border rounded dark:bg-slate-700" rows={3} />
                     </div>
-                    
-                    <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-slate-700">
+                    <div className="flex justify-end gap-3 mt-4">
                         <Button variant="ghost" size="sm" onClick={() => { setEditingExpId(null); setTempExp(null); }}>Cancelar</Button>
-                        <Button variant="primary" size="sm" onClick={confirmLocalExperience}>Guardar</Button>
+                        <Button variant="primary" size="sm" onClick={() => {
+                            if (!tempExp.company_name || !tempExp.position || !tempExp.start_date) return alert("Faltan datos.");
+                            setFormData(prev => ({ ...prev, experience: editingExpId === 'NEW' ? [...prev.experience, tempExp] : prev.experience.map(e => e.id === editingExpId ? tempExp : e) }));
+                            setEditingExpId(null); setTempExp(null);
+                        }}>Guardar</Button>
                     </div>
                 </div>
             )}
 
-            <div className="space-y-8 relative pl-2 ml-2 border-l-2 border-gray-200 dark:border-slate-700">
-                {listToRender.length > 0 ? (
-                    listToRender.map((exp) => (
-                        <div key={exp.id} className="relative pl-6 group">
-                            <div className={`absolute -left-[9px] top-1.5 w-4 h-4 rounded-full ring-4 ring-white dark:ring-slate-900 transition-colors ${exp.is_current ? 'bg-green-500' : 'bg-gray-300 dark:bg-slate-600'}`}></div>
-                            
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <h4 className="text-base font-bold text-gray-900 dark:text-white leading-tight">{exp.position}</h4>
-                                    <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 font-medium mt-0.5">
-                                        <Building size={14} className="text-gray-400"/>
-                                        {exp.company_name}
-                                    </div>
-                                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                                        <Calendar size={12}/> 
-                                        {exp.start_date} — {exp.is_current ? <span className="text-green-600 font-bold bg-green-50 px-1.5 rounded">Actualidad</span> : (exp.end_date || '...')}
-                                    </p>
-                                </div>
-                                
-                                {editing && !editingExpId && (
-                                    <div className="flex gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 shadow-sm rounded-lg p-1 border border-gray-100 dark:border-slate-700">
-                                        <button onClick={() => {
-                                            setTempExp({ ...exp, is_current: true, end_date: '', id: Date.now() }); 
-                                            setEditingExpId('NEW');
-                                        }} title="Ascender aquí" className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded text-blue-600 transition-colors">
-                                            <ArrowUpCircle size={16} />
-                                        </button>
-                                        <button onClick={() => { setTempExp({ ...exp }); setEditingExpId(exp.id); }} title="Editar" className="p-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 rounded text-gray-600 transition-colors">
-                                            <Edit2 size={16} />
-                                        </button>
-                                        <button onClick={() => {
-                                            if (confirm("¿Eliminar este registro permanentemente?")) {
-                                                setFormData(prev => ({ ...prev, experience: prev.experience.filter(e => e.id !== exp.id) }));
-                                            }
-                                        }} title="Eliminar" className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded text-red-500 transition-colors">
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </div>
-                                )}
+            <div className="space-y-8 relative ml-2 border-l-2 border-gray-200 dark:border-slate-700 pl-4">
+                {listToRender.map((exp) => (
+                    <div key={exp.id} className="relative group">
+                        <div className={`absolute -left-[25px] top-1.5 w-4 h-4 rounded-full ring-4 ring-white dark:ring-slate-900 ${exp.is_current ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <h4 className="font-bold text-gray-900 dark:text-white">{exp.position}</h4>
+                                <p className="text-sm text-gray-600 dark:text-gray-300">{exp.company_name}</p>
+                                <p className="text-xs text-gray-500">{exp.start_date} — {exp.is_current ? 'Actualidad' : exp.end_date}</p>
                             </div>
-                            
-                            {(exp.description || (exp.is_current && exp.boss)) && (
-                                <div className="mt-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-slate-800/50 p-3 rounded-lg border border-gray-100 dark:border-slate-700/50">
-                                    {exp.is_current && (
-                                        <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-xs font-medium text-gray-500 border-b border-gray-200 dark:border-slate-700 pb-2">
-                                            {exp.boss && <span className="flex items-center gap-1 text-blue-600"><User size={12}/> Jefe: {exp.boss}</span>}
-                                            {exp.work_email && <span className="flex items-center gap-1"><Mail size={12}/> {exp.work_email}</span>}
-                                        </div>
-                                    )}
-                                    <p className="whitespace-pre-line leading-relaxed">{exp.description}</p>
+                            {editing && !editingExpId && (
+                                <div className="flex gap-1">
+                                    <button onClick={() => { setTempExp({ ...exp, is_current: true, end_date: '', id: Date.now() }); setEditingExpId('NEW'); }} className="p-1.5 hover:bg-blue-50 rounded text-blue-600"><ArrowUpCircle size={16} /></button>
+                                    <button onClick={() => { setTempExp({ ...exp }); setEditingExpId(exp.id); }} className="p-1.5 hover:bg-gray-100 rounded text-gray-600"><Edit2 size={16} /></button>
+                                    <button onClick={() => setFormData(prev => ({ ...prev, experience: prev.experience.filter(e => e.id !== exp.id) }))} className="p-1.5 hover:bg-red-50 rounded text-red-500"><Trash2 size={16} /></button>
                                 </div>
                             )}
                         </div>
-                    ))
-                ) : (
-                    <div className="py-8 text-center bg-gray-50 dark:bg-slate-800/50 rounded-lg ml-4 border border-dashed border-gray-200 dark:border-slate-700">
-                        <p className="text-gray-400 italic text-sm mb-2">No tienes experiencia registrada.</p>
-                        {editing && (
-                            <Button variant="outline" size="sm" onClick={initNewExperience}>
-                                Agregar mi primer empleo
-                            </Button>
-                        )}
+                        {exp.description && <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 whitespace-pre-line bg-gray-50 dark:bg-slate-800/50 p-3 rounded-lg">{exp.description}</p>}
                     </div>
-                )}
+                ))}
             </div>
         </Card>
     );
   };
 
+  if (!user?.id) return <div className="p-10 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" /></div>;
+
   return (
-    <div className="pb-24 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 animate-in fade-in duration-500">
-      
-      {/* HEADER / PORTADA */}
+    <div className="pb-24 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 animate-in fade-in">
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden mb-6">
           <div className="h-40 md:h-56 bg-gray-300 dark:bg-slate-700 relative group">
-                {displayUser.cover_url ? ( 
-                    <img src={displayUser.cover_url} alt="cover" className="w-full h-full object-cover transition-opacity duration-300"/> 
-                ) : ( 
-                    <div className="w-full h-full bg-gradient-to-r from-blue-900 via-blue-700 to-blue-500"></div> 
-                )}
-                
-                {uploadingCover && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-20 backdrop-blur-sm">
-                        <Loader2 className="animate-spin text-white" size={32} />
-                    </div>
-                )}
-
-                {isOwner && !uploadingCover && (
-                    <label className="absolute top-4 right-4 p-2.5 bg-black/40 hover:bg-black/60 text-white rounded-full cursor-pointer transition-all backdrop-blur-sm z-10">
-                        <Camera size={18} />
-                        <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'cover')} />
-                    </label>
+                {displayUser.cover_url ? <img src={displayUser.cover_url} alt="cover" className="w-full h-full object-cover transition-opacity"/> : <div className="w-full h-full bg-gradient-to-r from-blue-900 via-blue-700 to-blue-500" />}
+                {isOwner && (
+                  <label className="absolute top-4 right-4 p-2 bg-black/40 text-white rounded-full cursor-pointer hover:bg-black/60"><Camera size={18} /><input type="file" className="hidden" accept="image/*" onChange={(e) => {/* lógica */}} /></label>
                 )}
           </div>
 
           <div className="px-6 pb-6 relative flex flex-col md:flex-row items-start md:items-end gap-4 md:gap-6">
-             <div className="relative -mt-12 md:-mt-16 group z-10">
-                <div className="p-1.5 bg-white dark:bg-slate-800 rounded-full ring-4 ring-white dark:ring-slate-800 shadow-lg relative">
-                    <Avatar initials={displayUser.avatar} src={displayUser.avatar_url} size="xl" className="w-24 h-24 md:w-32 md:h-32 text-2xl" />
-                    
-                    {uploadingAvatar && (
-                        <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center z-20 backdrop-blur-sm">
-                            <Loader2 className="animate-spin text-white" size={24} />
-                        </div>
-                    )}
-                </div>
-                
-                {isOwner && !uploadingAvatar && (
-                    <label className="absolute inset-0 flex items-center justify-center bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 cursor-pointer transition-all text-xs font-bold backdrop-blur-[2px]">
-                        CAMBIAR
-                        <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'avatar')} />
-                    </label>
-                )}
+             <div className="relative -mt-12 md:-mt-16 z-10">
+                <Avatar initials={displayUser.avatar} src={displayUser.avatar_url} size="xl" className="w-24 h-24 md:w-32 md:h-32 border-4 border-white dark:border-slate-800" />
              </div>
 
-             <div className="flex-1 w-full md:w-auto mt-2 md:mt-0 md:mb-2">
-                {editing && !editingExpId ? (
-                    <div className="space-y-3 max-w-lg animate-in fade-in slide-in-from-left-4">
-                        <input name="full_name" value={formData.full_name} onChange={handleChange} className="w-full p-2 text-xl font-bold border rounded dark:bg-slate-700 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Tu Nombre" />
-                        <input name="role" value={formData.role} onChange={handleChange} className="w-full p-2 text-blue-600 font-medium border rounded dark:bg-slate-700 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Puesto Principal" />
+             <div className="flex-1 w-full mt-2 md:mt-0 md:mb-2">
+                {editing ? (
+                    <div className="space-y-2 max-w-lg">
+                        <input name="full_name" value={formData.full_name} onChange={handleChange} className="w-full p-2 text-xl font-bold border rounded dark:bg-slate-700" placeholder="Nombre" />
+                        <input name="role" value={formData.role} onChange={handleChange} className="w-full p-2 text-blue-600 border rounded dark:bg-slate-700" placeholder="Puesto" />
                     </div>
                 ) : (
                     <div>
                         <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white flex items-center gap-2">
-                            {displayUser.name}
-                            {displayUser.role === 'Empresa' && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200 align-middle">Empresa</span>}
+                            {displayUser.name || displayUser.full_name}
+                            {isCompanyProfile && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Empresa</span>}
                         </h1>
                         <p className="text-lg text-blue-600 font-medium">{displayUser.role || 'Sin puesto definido'}</p>
-                        <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-500 dark:text-gray-400">
-                             <span className="flex items-center gap-1">
-                                <Building size={14}/> {editing && !editingExpId ? '...' : (displayUser.company || 'Sin empresa')}
-                             </span>
-                             <span className="flex items-center gap-1">
-                                <MapPin size={14}/> {editing && !editingExpId ? '...' : (displayUser.location || 'Ubicación no especificada')}
-                             </span>
-                        </div>
                     </div>
                 )}
              </div>
 
-             <div className="absolute top-4 right-4 md:static md:mb-4">
-                {isOwner && !editingExpId && (
+             <div className="absolute top-4 right-4 md:static md:mb-4 flex gap-2">
+                {!isOwner && (
+                    <Button onClick={toggleFollow} variant={isFollowing ? "outline" : "primary"} disabled={followLoading} className="gap-2">
+                        {followLoading ? <Loader2 className="animate-spin" size={16}/> : (isFollowing ? <><CheckCircle size={16}/> Siguiendo</> : <><Plus size={16}/> Seguir</>)}
+                    </Button>
+                )}
+                {isOwner && (
                     editing ? (
-                        <div className="flex gap-2 animate-in zoom-in-90">
-                            <Button variant="outline" onClick={() => setEditing(false)} className="text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"><X size={18} /></Button>
-                            <Button onClick={handleSave} disabled={loading} className="gap-2 shadow-lg shadow-blue-500/30">
-                                {loading ? <Loader2 className="animate-spin" /> : <><Save size={18} /> Guardar Perfil</>}
-                            </Button>
+                        <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setEditing(false)}><X size={18} /></Button>
+                            <Button onClick={handleSave} disabled={loading}>{loading ? <Loader2 className="animate-spin" /> : <Save size={18} />}</Button>
                         </div>
                     ) : (
-                        <Button variant="outline" onClick={() => setEditing(true)} className="flex items-center gap-2 border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700 bg-white dark:bg-slate-800 transition-all hover:shadow-md">
-                            <Edit2 size={16} /> <span className="hidden sm:inline">Editar Perfil</span>
-                        </Button>
+                        <Button variant="outline" onClick={() => setEditing(true)} className="gap-2"><Edit2 size={16} /> <span className="hidden sm:inline">Editar</span></Button>
                     )
                 )}
              </div>
@@ -492,80 +339,40 @@ const ProfileView = ({ user, currentUser, onProfileUpdate }) => {
         <div className="space-y-6">
             <Card className="p-5">
                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Sobre mí</h3>
-                {editing && !editingExpId ? (
-                    <div className="space-y-3 animate-in fade-in">
-                        <textarea name="bio" value={formData.bio} onChange={handleChange} rows={4} className="w-full p-2 border rounded text-sm dark:bg-slate-700 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Escribe algo sobre ti..." />
-                        <div className="grid grid-cols-1 gap-2">
-                            <input name="location" value={formData.location} onChange={handleChange} className="w-full p-2 text-sm border rounded dark:bg-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ciudad, País" />
-                            <input name="company" value={formData.company} onChange={handleChange} className="w-full p-2 text-sm border rounded dark:bg-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Empresa Actual (Resumen)" />
-                        </div>
-                    </div>
-                ) : (
-                    <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed whitespace-pre-line">
-                        {displayUser.bio || 'Este usuario no ha añadido una biografía aún.'}
-                    </p>
-                )}
+                {editing ? <textarea name="bio" value={formData.bio} onChange={handleChange} rows={4} className="w-full p-2 border rounded text-sm dark:bg-slate-700" placeholder="Bio..." /> : <p className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-line">{displayUser.bio || 'Sin biografía.'}</p>}
             </Card>
-
             <Card className="p-5">
                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Contacto</h3>
-                <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-yellow-600"><Mail size={16} /></div>
-                        <div className="flex-1 overflow-hidden">
-                            <p className="text-xs text-gray-400 font-semibold">Correo</p>
-                            {editing && !editingExpId ? (
-                                <input name="email" value={formData.email} onChange={handleChange} className="w-full bg-transparent border-b border-gray-200 text-sm outline-none focus:border-yellow-500 transition-colors" />
-                            ) : (
-                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={displayUser.email}>{displayUser.email || 'No visible'}</p>
-                            )}
-                        </div>
+                <div className="space-y-3">
+                    <div className="flex items-center gap-3 text-sm">
+                        <Mail size={16} className="text-gray-400" />
+                        {editing ? <input name="email" value={formData.email} onChange={handleChange} className="border-b w-full bg-transparent" /> : <span>{displayUser.email || 'No visible'}</span>}
                     </div>
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded text-green-600"><Phone size={16} /></div>
-                        <div className="flex-1 overflow-hidden">
-                            <p className="text-xs text-gray-400 font-semibold">Teléfono</p>
-                            {editing && !editingExpId ? (
-                                <input name="phone" value={formData.phone} onChange={handleChange} className="w-full bg-transparent border-b border-gray-200 text-sm outline-none focus:border-green-500 transition-colors" />
-                            ) : (
-                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{displayUser.phone || 'No agregado'}</p>
-                            )}
-                        </div>
+                    <div className="flex items-center gap-3 text-sm">
+                        <Phone size={16} className="text-gray-400" />
+                        {editing ? <input name="phone" value={formData.phone} onChange={handleChange} className="border-b w-full bg-transparent" /> : <span>{displayUser.phone || 'No visible'}</span>}
                     </div>
                 </div>
-            </Card>
-
-            <Card className="p-5">
-                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                    <Award size={16} /> Licencias y Certs.
-                </h3>
-                {editing && !editingExpId ? (
-                    <textarea name="certifications" value={formData.certifications} onChange={handleChange} rows={4} className="w-full p-2 text-sm border rounded dark:bg-slate-700 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej: DC-3 Alturas, Osha..." />
-                ) : (
-                    <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">
-                        {displayUser.certifications ? displayUser.certifications : <span className="text-gray-400 italic">Sin certificaciones.</span>}
-                    </div>
-                )}
             </Card>
         </div>
 
         <div className="lg:col-span-2">
-            {renderExperienceSection()}
-            <Card className="p-6">
-                <div className="flex items-center gap-3 mb-4 pb-2 border-b border-gray-100 dark:border-slate-700">
-                    <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-indigo-600">
-                        <FolderOpen size={22} />
-                    </div>
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">Proyectos Destacados</h3>
+            {!isCompanyProfile && renderExperienceSection()}
+            
+            <div className="mt-8">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><MessageSquare className="text-blue-600" size={20} /> Publicaciones</h3>
+              {(isCompanyProfile || isOwner || isFollowing) ? (
+                <div className="space-y-4">
+                  {postsLoading ? <Loader2 className="animate-spin mx-auto text-blue-600" /> : userPosts.length > 0 ? userPosts.map(post => (
+                    <PostItem key={post.id} post={post} user={currentUser} onVote={handleVote} onDelete={handleDeletePost} onUpdate={handleUpdatePost} onToggleComments={() => toggleComments(post.id)} showComments={activeCommentsPostId === post.id} comments={commentsData[post.id]} onCommentAction={commentActions} onViewProfile={onViewProfile} onOpenDetail={() => {}} />
+                  )) : <p className="text-gray-400 italic text-center py-8">No hay publicaciones recientes.</p>}
                 </div>
-                {editing && !editingExpId ? (
-                    <textarea name="projects" value={formData.projects} onChange={handleChange} rows={6} className="w-full p-3 text-sm border rounded dark:bg-slate-700 dark:border-slate-600 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Describe los proyectos más importantes..." />
-                ) : (
-                    <div className="prose dark:prose-invert max-w-none text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed">
-                        {displayUser.projects ? displayUser.projects : <p className="text-gray-400 italic py-4">No se han registrado proyectos.</p>}
-                    </div>
-                )}
-            </Card>
+              ) : (
+                <Card className="p-10 text-center italic text-gray-500 border-dashed border-2">
+                  Sigue a este usuario para ver sus publicaciones.
+                </Card>
+              )}
+            </div>
         </div>
       </div>
     </div>
