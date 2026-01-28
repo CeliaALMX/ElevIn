@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Loader2, Video, Image, Briefcase, MapPin } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Loader2, Video, Image, Briefcase, MapPin, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useComments } from '../../hooks/useComments';
 import { uploadFileToSupabase } from '../../helpers/fileUpload';
@@ -16,9 +16,11 @@ const FeedView = ({ user, onViewProfile }) => {
   const [loading, setLoading] = useState(true);
   const [feedType, setFeedType] = useState('for_you');
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [previews, setPreviews] = useState([]);
+  const [previews, setPreviews] = useState([]); // [{ url, type }]
   const [isUploading, setIsUploading] = useState(false);
   const [fullScreenPost, setFullScreenPost] = useState(null);
+
+  const fileInputRef = useRef(null);
 
   const {
     activeCommentsPostId,
@@ -56,7 +58,6 @@ const FeedView = ({ user, onViewProfile }) => {
       }
 
       const { data: postsData, error } = await postsQuery.order('created_at', { ascending: false });
-
       if (error) throw error;
 
       // Cargar interacciones (votos y comentarios)
@@ -102,6 +103,60 @@ const FeedView = ({ user, onViewProfile }) => {
     fetchPosts();
   }, [feedType]);
 
+  // ✅ Cleanup: revocar object URLs al desmontar o cuando cambien
+  useEffect(() => {
+    return () => {
+      previews.forEach(p => {
+        try { URL.revokeObjectURL(p.url); } catch (_) {}
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const removePreviewAt = (index) => {
+    setPreviews((prev) => {
+      const item = prev[index];
+      if (item?.url) {
+        try { URL.revokeObjectURL(item.url); } catch (_) {}
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+
+    // Si ya no hay nada, limpia el input para que puedas volver a subir el mismo archivo
+    setTimeout(() => {
+      if (fileInputRef.current && (selectedFiles.length - 1) <= 0) {
+        fileInputRef.current.value = '';
+      }
+    }, 0);
+  };
+
+  const handleSelectFiles = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setSelectedFiles(prev => [...prev, ...files]);
+
+    const newPreviews = files.map(f => ({
+      url: URL.createObjectURL(f),
+      type: f.type.startsWith('image/') ? 'image' : 'video'
+    }));
+
+    setPreviews(prev => [...prev, ...newPreviews]);
+  };
+
+  const clearComposer = () => {
+    // revocar URLs
+    previews.forEach(p => {
+      try { URL.revokeObjectURL(p.url); } catch (_) {}
+    });
+    setText('');
+    setSelectedFiles([]);
+    setPreviews([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const publish = async () => {
     if (!text.trim() && selectedFiles.length === 0) return;
     setIsUploading(true);
@@ -111,9 +166,14 @@ const FeedView = ({ user, onViewProfile }) => {
         const url = await uploadFileToSupabase(file, user.id);
         if (url) uploadedMedia.push({ type: file.type.startsWith('image/') ? 'image' : 'video', url });
       }
-      const { error } = await supabase.from('posts').insert([{ user_id: user.id, content: text, media: uploadedMedia }]);
+
+      const { error } = await supabase
+        .from('posts')
+        .insert([{ user_id: user.id, content: text, media: uploadedMedia }]);
+
       if (error) throw error;
-      setText(''); setSelectedFiles([]); setPreviews([]);
+
+      clearComposer();
       fetchPosts();
     } catch (err) {
       alert(`Error: ${err.message}`);
@@ -140,7 +200,14 @@ const FeedView = ({ user, onViewProfile }) => {
 
     if (currentVote) await supabase.from('post_votes').delete().match({ user_id: user.id, post_id: postId });
     if (newVote) await supabase.from('post_votes').upsert({ user_id: user.id, post_id: postId, vote_type: newVote });
-    const rpc = newVote === 'like' ? 'increment_likes' : (newVote === 'dislike' ? 'increment_dislikes' : (currentVote === 'like' ? 'decrement_likes' : 'decrement_dislikes'));
+    const rpc = newVote === 'like'
+      ? 'increment_likes'
+      : (newVote === 'dislike'
+        ? 'increment_dislikes'
+        : (currentVote === 'like'
+          ? 'decrement_likes'
+          : 'decrement_dislikes'));
+
     await supabase.rpc(rpc, { post_id: postId });
   };
 
@@ -149,19 +216,48 @@ const FeedView = ({ user, onViewProfile }) => {
     if (!error) setPosts(prev => prev.filter(p => p.id !== postId));
   };
 
-  const handleUpdatePost = async (postId, newContent) => {
-    const { error } = await supabase.from('posts').update({ content: newContent }).eq('id', postId).eq('user_id', user.id);
-    if (!error) setPosts(prev => prev.map(p => (p.id === postId ? { ...p, content: newContent } : p)));
+  const handleUpdatePost = async (postId, newContent, newMedia) => {
+    const updates = { content: newContent };
+  
+    // Si viene media (aunque sea []), la guardamos para mantener/eliminar
+    if (Array.isArray(newMedia)) updates.media = newMedia;
+  
+    const { error } = await supabase
+      .from('posts')
+      .update(updates)
+      .eq('id', postId)
+      .eq('user_id', user.id);
+  
+    if (!error) {
+      setPosts(prev =>
+        prev.map(p =>
+          p.id === postId
+            ? { ...p, content: newContent, media: Array.isArray(newMedia) ? newMedia : p.media }
+            : p
+        )
+      );
+    }
   };
+  
 
   return (
     <div className="pt-6 px-4 grid grid-cols-1 lg:grid-cols-4 gap-6">
-      <PostDetailModal post={fullScreenPost} onClose={() => setFullScreenPost(null)} user={user} commentsData={commentsData} commentActions={commentActions} fetchComments={fetchComments} />
-      
+      <PostDetailModal
+        post={fullScreenPost}
+        onClose={() => setFullScreenPost(null)}
+        user={user}
+        commentsData={commentsData}
+        commentActions={commentActions}
+        fetchComments={fetchComments}
+      />
+
       <aside className="hidden lg:block lg:col-span-1 space-y-4">
         <Card className="sticky top-24 overflow-hidden">
           <div className="relative h-28 bg-gray-200 dark:bg-slate-700">
-            {user.cover_url ? <img src={user.cover_url} alt="Portada" className="w-full h-full object-cover" /> : <div className="w-full h-full bg-gradient-to-r from-blue-800 to-blue-600" />}
+            {user.cover_url
+              ? <img src={user.cover_url} alt="Portada" className="w-full h-full object-cover" />
+              : <div className="w-full h-full bg-gradient-to-r from-blue-800 to-blue-600" />
+            }
             <div className="absolute -bottom-10 left-4">
               <div className="p-1 bg-white dark:bg-slate-800 rounded-full ring-4 ring-white dark:ring-slate-900">
                 <Avatar initials={user.avatar} src={user.avatar_url} size="lg" />
@@ -184,17 +280,56 @@ const FeedView = ({ user, onViewProfile }) => {
           <div className="flex gap-3">
             <Avatar initials={user.avatar} src={user.avatar_url} />
             <div className="flex-1">
-              <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={`¿Qué hay de nuevo, ${user.name.split(' ')[0]}?`} className="w-full p-2 bg-gray-50 dark:bg-slate-900 rounded border-none dark:text-white text-sm" rows={3} />
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder={`¿Qué hay de nuevo, ${user.name.split(' ')[0]}?`}
+                className="w-full p-2 bg-gray-50 dark:bg-slate-900 rounded border-none dark:text-white text-sm"
+                rows={3}
+              />
+
+              {/* PREVIEW DE IMAGENES EN EL POST */}
+              {previews.length > 0 && (
+                <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {previews.map((p, idx) => (
+                    <div key={`${p.url}-${idx}`} className="relative rounded-lg overflow-hidden bg-black/90">
+                      <button
+                        type="button"
+                        onClick={() => removePreviewAt(idx)}
+                        className="absolute top-2 right-2 p-1 bg-black/60 text-white rounded-full hover:bg-black/80 z-10"
+                        title="Quitar"
+                      >
+                        <X size={16} />
+                      </button>
+
+                      {p.type === 'video' ? (
+                        <video src={p.url} controls className="w-full h-16 object-cover" />
+                      ) : (
+                        <img src={p.url} alt="Preview" className="w-full h-16 object-cover" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="flex justify-between items-center mt-2">
                 <label className="cursor-pointer p-2 hover:bg-blue-50 rounded-full">
                   <Image size={20} className="text-blue-600" />
-                  <input type="file" multiple accept="image/*,video/*" className="hidden" onChange={(e) => {
-                    const files = Array.from(e.target.files || []);
-                    setSelectedFiles(prev => [...prev, ...files]);
-                    setPreviews(prev => [...prev, ...files.map(f => ({ url: URL.createObjectURL(f), type: f.type.startsWith('image/') ? 'image' : 'video' }))]);
-                  }} />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,video/*"
+                    className="hidden"
+                    onChange={handleSelectFiles}
+                  />
                 </label>
-                <Button onClick={publish} disabled={isUploading || (!text && selectedFiles.length === 0)} className="text-sm px-6 rounded-full">
+
+                <Button
+                  onClick={publish}
+                  disabled={isUploading || (!text && selectedFiles.length === 0)}
+                  className="text-sm px-6 rounded-full"
+                >
                   {isUploading ? <Loader2 className="animate-spin" size={18} /> : 'Publicar'}
                 </Button>
               </div>
@@ -202,13 +337,32 @@ const FeedView = ({ user, onViewProfile }) => {
           </div>
         </Card>
 
-        {loading ? <div className="flex justify-center p-4"><Loader2 className="animate-spin text-blue-600" /></div> : (
+        {loading ? (
+          <div className="flex justify-center p-4">
+            <Loader2 className="animate-spin text-blue-600" />
+          </div>
+        ) : (
           <div className="space-y-4">
             {posts.length > 0 ? posts.map(post => (
-              <PostItem key={post.id} post={post} user={user} onVote={handleVote} onDelete={handleDeletePost} onUpdate={handleUpdatePost} onToggleComments={() => toggleComments(post.id)} showComments={activeCommentsPostId === post.id} comments={commentsData[post.id]} onCommentAction={commentActions} onOpenDetail={setFullScreenPost} onViewProfile={onViewProfile} />
+              <PostItem
+                key={post.id}
+                post={post}
+                user={user}
+                onVote={handleVote}
+                onDelete={handleDeletePost}
+                onUpdate={handleUpdatePost}
+                onToggleComments={() => toggleComments(post.id)}
+                showComments={activeCommentsPostId === post.id}
+                comments={commentsData[post.id]}
+                onCommentAction={commentActions}
+                onOpenDetail={setFullScreenPost}
+                onViewProfile={onViewProfile}
+              />
             )) : (
               <Card className="p-8 text-center text-gray-500 italic">
-                {user.role === 'Empresa' ? 'No hay publicaciones disponibles en la red.' : 'Sigue a otros técnicos para ver sus publicaciones aquí.'}
+                {user.role === 'Empresa'
+                  ? 'No hay publicaciones disponibles en la red.'
+                  : 'Sigue a otros técnicos para ver sus publicaciones aquí.'}
               </Card>
             )}
           </div>
@@ -217,7 +371,9 @@ const FeedView = ({ user, onViewProfile }) => {
 
       <aside className="hidden lg:block lg:col-span-1">
         <Card className="p-4">
-          <h3 className="font-bold mb-4 flex items-center gap-2"><Briefcase size={18} className="text-blue-500" /> Empleos</h3>
+          <h3 className="font-bold mb-4 flex items-center gap-2">
+            <Briefcase size={18} className="text-blue-500" /> Empleos
+          </h3>
           {JOBS_DATA.slice(0, 2).map(job => (
             <div key={job.id} className="border-b dark:border-slate-700 pb-2 mb-2 last:border-0">
               <h4 className="font-semibold text-sm">{job.title}</h4>

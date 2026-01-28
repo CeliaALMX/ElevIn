@@ -166,10 +166,27 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
     if (!error) setUserPosts(prev => prev.filter(p => p.id !== postId));
   };
 
-  const handleUpdatePost = async (postId, newContent) => {
-    const { error } = await supabase.from('posts').update({ content: newContent }).eq('id', postId).eq('user_id', currentUser.id);
-    if (!error) setUserPosts(prev => prev.map(p => (p.id === postId ? { ...p, content: newContent } : p)));
+  const handleUpdatePost = async (postId, newContent, newMedia) => {
+    const updates = { content: newContent };
+    if (Array.isArray(newMedia)) updates.media = newMedia;
+  
+    const { error } = await supabase
+      .from('posts')
+      .update(updates)
+      .eq('id', postId)
+      .eq('user_id', currentUser.id);
+  
+    if (!error) {
+      setUserPosts(prev =>
+        prev.map(p =>
+          p.id === postId
+            ? { ...p, content: newContent, media: Array.isArray(newMedia) ? newMedia : p.media }
+            : p
+        )
+      );
+    }
   };
+  
 
   const toggleFollow = async () => {
     if (!currentUser?.id || followLoading) return;
