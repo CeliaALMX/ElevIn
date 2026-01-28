@@ -300,7 +300,7 @@ function App() {
           
           <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0 cursor-pointer" onClick={() => setView('feed')}>
             <ArrowUp className="bg-yellow-400 text-blue-900 p-0.5 rounded" size={28} />
-            <span className="hidden md:inline">ElevatorConnect</span>
+            <span className="hidden md:inline">AscenLin</span>
           </div>
 
           <div className="hidden md:flex h-full items-center gap-1 ml-4">

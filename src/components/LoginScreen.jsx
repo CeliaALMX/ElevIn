@@ -96,7 +96,7 @@ const LoginScreen = () => {
   const renderCompanyFields = () => (
     <div className="grid grid-cols-1 gap-3 animate-in fade-in slide-in-from-top-1 bg-gray-50 dark:bg-slate-700/30 p-4 rounded-lg border border-gray-100 dark:border-slate-600">
       <div>
-        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Datos Fiscales</label>ß
+        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Datos Fiscales</label>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <select name="employeeCount" value={formData.employeeCount} onChange={handleChange}
@@ -125,13 +125,13 @@ const LoginScreen = () => {
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 translate-y-1/2 -translate-x-1/2"></div>
         <div className="flex items-center gap-3 z-10">
           <div className="bg-yellow-400 p-2 rounded-lg"><ArrowUp className="w-6 h-6 text-blue-900" strokeWidth={3} /></div>
-          <span className="text-2xl font-bold tracking-tight">ElevatorConnect</span>
+          <span className="text-2xl font-bold tracking-tight">AscenLin</span>
         </div>
         <div className="z-10 max-w-lg">
           <h2 className="text-4xl font-extrabold mb-6 leading-tight">La comunidad oficial para el <span className="text-yellow-400">Transporte Vertical</span>.</h2>
           <p className="text-blue-100 text-lg mb-8">Conecta con técnicos, ingenieros y empresas.</p>
         </div>
-        <div className="z-10 text-xs text-blue-300">© 2024 ElevatorConnect. v1.1.0</div>
+        <div className="z-10 text-xs text-blue-300">© 2026 AscenLin. v1.1.0</div>
       </div>
 
       {/* PANEL DERECHO */}

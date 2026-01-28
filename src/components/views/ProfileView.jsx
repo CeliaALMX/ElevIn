@@ -30,7 +30,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   const [postsLoading, setPostsLoading] = useState(true);
 
   // --- HOOK DE COMENTARIOS ---
-  // Pasamos currentUser con safe check para evitar colapsos
   const {
     activeCommentsPostId,
     commentsData,
@@ -41,7 +40,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
 
   const [displayUser, setDisplayUser] = useState(user || {});
   
-  // ✅ Seguridad: Verificamos IDs antes de comparar
   const isOwner = currentUser?.id && user?.id && user.id === currentUser.id;
   const isCompanyProfile = user?.role === 'Empresa';
 
@@ -61,7 +59,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   };
 
   useEffect(() => {
-    // ✅ Salida temprana si no hay usuario para evitar pantalla en blanco
     if (!user?.id || !currentUser?.id) return;
     if (justSavedRef.current) return;
 
@@ -141,7 +138,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
     }
   }, [user?.id, editing, currentUser?.id, isOwner]);
 
-  // --- MANEJADORES DE ACCIONES (POSTS) ---
   const handleVote = async (postId, type) => {
     if (!currentUser?.id) return;
     const post = userPosts.find(p => p.id === postId);
@@ -175,7 +171,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
     if (!error) setUserPosts(prev => prev.map(p => (p.id === postId ? { ...p, content: newContent } : p)));
   };
 
-  // --- MANEJADORES DE SEGUIMIENTO ---
   const toggleFollow = async () => {
     if (!currentUser?.id || followLoading) return;
     setFollowLoading(true);
@@ -354,12 +349,12 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
                     </div>
                 </div>
             </Card>
+            {/* ✅ AJUSTE: La trayectoria laboral ahora se renderiza en la columna izquierda, debajo de contacto */}
+            {!isCompanyProfile && renderExperienceSection()}
         </div>
 
         <div className="lg:col-span-2">
-            {!isCompanyProfile && renderExperienceSection()}
-            
-            <div className="mt-8">
+            <div className="mt-0">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><MessageSquare className="text-blue-600" size={20} /> Publicaciones</h3>
               {(isCompanyProfile || isOwner || isFollowing) ? (
                 <div className="space-y-4">
