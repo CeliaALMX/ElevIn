@@ -224,10 +224,10 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
     const listToRender = editing ? formData.experience : (displayUser.experience || []);
 
     return (
-        <Card className="p-6 mb-6 border-t-4 border-t-blue-500 shadow-sm overflow-hidden">
+        <Card className="p-6 mb-6 border-t-4 border-t-gold-premium shadow-lg overflow-hidden">
             <div className="flex items-center justify-between mb-5 pb-2 border-b border-gray-100 dark:border-slate-700">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600"><Briefcase size={22} /></div>
+                    <div className="p-2 bg-emerald-deep/10 dark:bg-emerald-deep/40 rounded-lg text-gold-premium"><Briefcase size={22} /></div>
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white">Trayectoria Laboral</h3>
                 </div>
                 {editing && !editingExpId && (
@@ -297,11 +297,11 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
 
   return (
     <div className="pb-24 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 animate-in fade-in">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden mb-6">
-          <div className="h-40 md:h-56 bg-gray-300 dark:bg-slate-700 relative group">
-                {displayUser.cover_url ? <img src={displayUser.cover_url} alt="cover" className="w-full h-full object-cover transition-opacity"/> : <div className="w-full h-full bg-gradient-to-r from-blue-900 via-blue-700 to-blue-500" />}
+      <div className="bg-white dark:bg-emerald-medium rounded-2xl shadow-xl border border-softgray dark:border-emerald-dark overflow-hidden mb-6">
+          <div className="h-40 md:h-56 bg-emerald-dark relative group">
+                {displayUser.cover_url ? <img src={displayUser.cover_url} alt="cover" className="w-full h-full object-cover opacity-100"/> : <div className="w-full h-full bg-gradient-to-r from-emerald-deep via-emerald-medium to-emerald-dark" />}
                 {isOwner && (
-                  <label className="absolute top-4 right-4 p-2 bg-black/40 text-white rounded-full cursor-pointer hover:bg-black/60"><Camera size={18} /><input type="file" className="hidden" accept="image/*" onChange={(e) => {/* lógica */}} /></label>
+                  <label className="absolute top-4 right-4 p-2 bg-black/40 text-white rounded-full cursor-pointer hover:bg-black/60"><Camera size={18} /><input type="file" className="hidden" accept="image/*" onChange={(e) => {handleImageUpload}} /></label>
                 )}
           </div>
 
@@ -318,11 +318,11 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
                     </div>
                 ) : (
                     <div>
-                        <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white flex items-center gap-2">
+                        <h1 className="text-2xl md:text-3xl font-extrabold text-emerald-deep dark:text-ivory flex items-center gap-2">
                             {displayUser.name || displayUser.full_name}
-                            {isCompanyProfile && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Empresa</span>}
+                            {isCompanyProfile && <span className="text-xs bg-gray-100 text-gold-premium px-2 py-0.5 rounded-full">Empresa</span>}
                         </h1>
-                        <p className="text-lg text-blue-600 font-medium">{displayUser.role || 'Sin puesto definido'}</p>
+                        <p className="text-lg text-gold-premium font-medium">{displayUser.role || 'Sin puesto definido'}</p>
                     </div>
                 )}
              </div>
@@ -350,11 +350,11 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-6">
             <Card className="p-5">
-                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Sobre mí</h3>
+                <h3 className="text-sm font-bold text-gold-champagne uppercase tracking-wider mb-3">Sobre mí</h3>
                 {editing ? <textarea name="bio" value={formData.bio} onChange={handleChange} rows={4} className="w-full p-2 border rounded text-sm dark:bg-slate-700" placeholder="Bio..." /> : <p className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-line">{displayUser.bio || 'Sin biografía.'}</p>}
             </Card>
             <Card className="p-5">
-                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Contacto</h3>
+                <h3 className="text-sm font-bold text-gold-champagne uppercase tracking-wider mb-4">Contacto</h3>
                 <div className="space-y-3">
                     <div className="flex items-center gap-3 text-sm">
                         <Mail size={16} className="text-gray-400" />
@@ -372,15 +372,15 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
 
         <div className="lg:col-span-2">
             <div className="mt-0">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><MessageSquare className="text-blue-600" size={20} /> Publicaciones</h3>
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><MessageSquare className="text-gold-premium" size={20} /> Publicaciones</h3>
               {(isCompanyProfile || isOwner || isFollowing) ? (
                 <div className="space-y-4">
-                  {postsLoading ? <Loader2 className="animate-spin mx-auto text-blue-600" /> : userPosts.length > 0 ? userPosts.map(post => (
+                  {postsLoading ? <Loader2 className="animate-spin mx-auto text-gold-premium" /> : userPosts.length > 0 ? userPosts.map(post => (
                     <PostItem key={post.id} post={post} user={currentUser} onVote={handleVote} onDelete={handleDeletePost} onUpdate={handleUpdatePost} onToggleComments={() => toggleComments(post.id)} showComments={activeCommentsPostId === post.id} comments={commentsData[post.id]} onCommentAction={commentActions} onViewProfile={onViewProfile} onOpenDetail={() => {}} />
                   )) : <p className="text-gray-400 italic text-center py-8">No hay publicaciones recientes.</p>}
                 </div>
               ) : (
-                <Card className="p-10 text-center italic text-gray-500 border-dashed border-2">
+                <Card className="p-10 text-center italic text-gold-premium border-dashed border-2">
                   Sigue a este usuario para ver sus publicaciones.
                 </Card>
               )}

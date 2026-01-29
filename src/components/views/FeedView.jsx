@@ -252,24 +252,24 @@ const FeedView = ({ user, onViewProfile }) => {
       />
 
       <aside className="hidden lg:block lg:col-span-1 space-y-4">
-        <Card className="sticky top-24 overflow-hidden">
-          <div className="relative h-28 bg-gray-200 dark:bg-slate-700">
+      <Card className="sticky top-24 overflow-hidden border-none shadow-xl">
+        <div className="relative h-28 bg-emerald-dark">
             {user.cover_url
               ? <img src={user.cover_url} alt="Portada" className="w-full h-full object-cover" />
-              : <div className="w-full h-full bg-gradient-to-r from-blue-800 to-blue-600" />
+              : <div className="w-full h-full bg-gradient-to-r from-emerald-deep to-emerald-medium" />
             }
             <div className="absolute -bottom-10 left-4">
-              <div className="p-1 bg-white dark:bg-slate-800 rounded-full ring-4 ring-white dark:ring-slate-900">
+              <div className="p-1 bg-white dark:bg-emerald-medium rounded-full ring-4 ring-ivory dark:ring-emerald-deep">
                 <Avatar initials={user.avatar} src={user.avatar_url} size="lg" />
               </div>
             </div>
           </div>
           <div className="px-4 pb-4 pt-14">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">{user.name}</h2>
-            <p className="text-sm text-blue-600 font-medium mb-4">{user.role}</p>
+            <h2 className="text-xl font-bold text-emerald-deep dark:text-ivory">{user.name}</h2>
+            <p className="text-sm text-gold-premium font-medium mb-4">{user.role}</p>
             <div className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
-              <div className="flex items-center gap-2"><Briefcase size={16} /><span>{user.company}</span></div>
-              <div className="flex items-center gap-2"><MapPin size={16} /><span>{user.location || 'México'}</span></div>
+              <div className="flex items-center gap-2 text-gold-champagne"><Briefcase size={16} /><span>{user.company}</span></div>
+              <div className="flex items-center gap-2 text-gold-champagne"><MapPin size={16} /><span>{user.location || 'México'}</span></div>
             </div>
           </div>
         </Card>
@@ -372,7 +372,7 @@ const FeedView = ({ user, onViewProfile }) => {
       <aside className="hidden lg:block lg:col-span-1">
         <Card className="p-4">
           <h3 className="font-bold mb-4 flex items-center gap-2">
-            <Briefcase size={18} className="text-blue-500" /> Empleos
+            <Briefcase size={18} className="text-gold-champagne" /> Empleos
           </h3>
           {JOBS_DATA.slice(0, 2).map(job => (
             <div key={job.id} className="border-b dark:border-slate-700 pb-2 mb-2 last:border-0">

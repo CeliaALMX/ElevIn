@@ -2,8 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* --- RESETEO IMPORTANTE --- */
-/* Esto elimina los márgenes por defecto de Vite y fuerza pantalla completa */
 :root,
 html,
 body,
@@ -12,5 +10,22 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
-  display: block; /* Esto es clave: elimina el "display: flex" que centra todo */
+  display: block;
+  background-color: #F5F5F0; /* Blanco Marfil para modo claro */
+}
+
+.dark body, .dark #root {
+  background-color: #004336; /* Verde Esmeralda Profundo para modo oscuro */
+}
+
+/* Scrollbar personalizada para que coincida con la estética */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #004336;
+}
+::-webkit-scrollbar-thumb {
+  background: #A37E43;
+  border-radius: 10px;
 }

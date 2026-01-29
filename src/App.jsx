@@ -28,7 +28,7 @@ import { JOBS_DATA } from './data/mockData';
 // Componente de carga para las transiciones entre vistas
 const PageLoader = () => (
   <div className="flex justify-center items-center h-64">
-    <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
+    <Loader2 className="animate-spin text-gold-premium w-8 h-8" />
   </div>
 );
 
@@ -288,19 +288,19 @@ function App() {
   const visibleJobs = jobs.filter(job => !reportedJobs.includes(job.id));
 
   // Render condicional temprano
-  if (sessionLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900"><Loader2 className="animate-spin text-blue-600 w-10 h-10"/></div>;
+  if (sessionLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900"><Loader2 className="animate-spin text-gold-champagne w-10 h-10"/></div>;
   if (!user) return <LoginScreen />;
 
   return (
-    <div className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-gray-100 font-sans min-h-screen transition-colors duration-300">
+    <div className="min-h-screen w-full bg-ivory dark:bg-emerald-deep transition-colors duration-300">
       
       {/* NAVBAR */}
-      <nav className="sticky top-0 z-30 bg-blue-900 text-white shadow-md border-b-4 border-yellow-500">
+      <nav className="sticky top-0 z-30 bg-emerald-deep text-ivory shadow-md border-b-4 border-gold-champagne"> {/*COLOR DE LA PARTE DE ABAJO DE LA BARRA DE NAVEGACIÓN*/}
         <div className="max-w-7xl mx-auto px-2 md:px-4 h-16 flex items-center justify-between">
           
           <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0 cursor-pointer" onClick={() => setView('feed')}>
-            <ArrowUp className="bg-yellow-400 text-blue-900 p-0.5 rounded" size={28} />
-            <span className="hidden md:inline">AscenLin</span>
+            <ArrowUp className="bg-gold-premium text-gold-champagne p-0.5 rounded" size={28} />
+            <span className="hidden md:inline text-xl font-bold tracking-tight text-gold-premium">AscenLin</span>
           </div>
 
           <div className="hidden md:flex h-full items-center gap-1 ml-4">
@@ -313,18 +313,18 @@ function App() {
           <SearchBar onSearch={handlePerformSearch} />
 
           <div className="flex items-center gap-2 md:gap-4 shrink-0">
-             <button onClick={handleGoToMyProfile} className={`hidden md:flex items-center gap-2 p-1 pr-3 rounded-full transition-colors group ${view === 'profile' && !viewedProfile ? 'bg-blue-800' : 'hover:bg-blue-800'}`}>
-               <div className="w-8 h-8 rounded-full bg-blue-700 border border-blue-400 flex items-center justify-center text-xs font-bold text-white overflow-hidden">
+             <button onClick={handleGoToMyProfile} className={`hidden md:flex items-center gap-2 p-1 pr-3 rounded-full transition-colors group ${view === 'profile' && !viewedProfile ? 'bg-gold-premium' : 'hover:bg-gold-premium'}`}>
+               <div className="w-8 h-8 rounded-full bg-gold-champagne border border-gold-champagne flex items-center justify-center text-xs font-bold text-white overflow-hidden">
                   <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="border-none" />
                </div>
-               <span className="text-xs text-blue-200 font-bold group-hover:text-white max-w-[100px] truncate">{user.name}</span>
+               <span className="text-xs text-blue-100 font-bold group-hover:text-white max-w-[100px] truncate">{user.name}</span> {/*CUANDO PASAS EL CURSOR SOBRE EL NOMBRE CAMBIA DE COLOR, SE VE COMO AZUL*/}
              </button>
-             <div className="hidden md:block h-6 w-px bg-blue-700 mx-1"></div>
-             <button onClick={() => setView('settings')} className={`hidden md:block p-1.5 rounded-full ${view === 'settings' ? 'bg-blue-800 text-white' : 'text-blue-200 hover:bg-blue-800'}`}>
+             <div className="hidden md:block h-6 w-px bg-gold-premium mx-1"></div>
+             <button onClick={() => setView('settings')} className={`hidden md:block p-1.5 rounded-full ${view === 'settings' ? 'bg-gold-premium text-white' : 'text-gold-champagne hover:bg-gold-premium'}`}>
                <Settings size={20} />
              </button>
-             <Bell size={20} className="text-blue-200 cursor-pointer hover:text-white" />
-             <button onClick={handleLogout} className="hidden sm:block text-blue-200 hover:text-red-300 transition-colors p-1"><LogOut size={20} /></button>
+             <Bell size={20} className="text-gold-champagne cursor-pointer hover:text-white" />
+             <button onClick={handleLogout} className="hidden sm:block text-gold-champagne hover:text-red-300 transition-colors p-1"><LogOut size={20} /></button>
           </div>
         </div>
       </nav>

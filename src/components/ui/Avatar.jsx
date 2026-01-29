@@ -13,7 +13,7 @@ const Avatar = ({ initials, src, size = 'md', className = '' }) => {
 
   return (
     <div 
-      className={`${currentSize} rounded-full bg-blue-700 text-white flex items-center justify-center font-bold border-4 border-white dark:border-slate-800 shrink-0 overflow-hidden shadow-sm ${className}`}
+      className={`${currentSize} rounded-full overflow-hidden flex items-center justify-center bg-emerald-dark text-gold-premium font-bold border-2 border-gold-champagne ${className}`}
     >
       {src ? (
         <img 

@@ -135,10 +135,10 @@ const PostItem = ({
           <Avatar initials={post.profiles?.avatar_initials || '??'} src={post.profiles?.avatar_url} />
           <div className="flex-1 min-w-0">
             <div className="flex flex-col">
-              <h4 className="font-bold text-sm text-gray-900 dark:text-white truncate group-hover:text-blue-600 transition-colors">
+              <h4 className="font-bold text-sm text-emerald-deep dark:text-ivory truncate group-hover:text-gold-premium transition-colors">
                 {post.profiles?.full_name || 'Usuario'}
               </h4>
-              <span className="text-[10px] text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900 px-2 py-0.5 rounded-full inline-block mt-0.5 w-fit">
+              <span className="text-[10px] text-gold-premium dark:text-gold-champagne bg-emerald-dark/10 dark:bg-emerald-deep px-2 py-0.5 rounded-full inline-block mt-0.5 w-fit">
                 {post.profiles?.role || 'Miembro'}
               </span>
             </div>
