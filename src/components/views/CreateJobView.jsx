@@ -70,7 +70,7 @@ const CreateJobView = ({ onCreate, onCancel, currentUser }) => {
           {/* SECCIÓN 1: DATOS CLAVE */}
           <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700">
              <div className="flex items-center gap-2 mb-6 border-b border-gray-100 dark:border-slate-700 pb-2">
-                <Briefcase className="text-blue-600" size={20}/>
+                <Briefcase className="text-gold-premium" size={20}/>
                 <h2 className="text-lg font-bold text-gray-800 dark:text-white">Información General</h2>
              </div>
 
@@ -135,7 +135,7 @@ const CreateJobView = ({ onCreate, onCancel, currentUser }) => {
           {/* SECCIÓN 2: DETALLES Y DESCRIPCIÓN */}
           <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700">
              <div className="flex items-center gap-2 mb-6 border-b border-gray-100 dark:border-slate-700 pb-2">
-                <ListChecks className="text-blue-600" size={20}/>
+                <ListChecks className="text-gold-premium" size={20}/>
                 <h2 className="text-lg font-bold text-gray-800 dark:text-white">Detalles del Perfil</h2>
              </div>
 

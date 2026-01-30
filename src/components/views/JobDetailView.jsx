@@ -52,7 +52,7 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
                  {/* MODIFICACIÓN: Botón interactivo para ir al perfil de la empresa */}
                  <button 
                     onClick={() => onViewCompany && onViewCompany(job)}
-                    className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1.5 hover:underline hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                    className="font-semibold text-gold-premium dark:text-gold-champagne flex items-center gap-1.5 hover:underline hover:white dark:hover:text-ivory transition-colors"
                  >
                     <Building size={16} /> {job.company}
                  </button>
@@ -94,7 +94,7 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
                   {job.responsibilities.split('\n').map((item, idx) => (
                     item.trim() && (
                       <li key={idx} className="flex items-start gap-3 text-gray-600 dark:text-gray-300">
-                        <CheckCircle size={18} className="text-blue-500 mt-1 shrink-0" />
+                        <CheckCircle size={18} className="text-gold-premium mt-1 shrink-0" />
                         <span className="leading-relaxed">{item}</span>
                       </li>
                     )
@@ -103,20 +103,20 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
               </section>
             )}
 
-            <section className="bg-gray-50 dark:bg-slate-800/50 p-6 rounded-xl border border-gray-100 dark:border-slate-800">
+            <section className="bg-ivory dark:bg-slate-800/50 p-6 rounded-xl border border-gray-100 dark:border-slate-800">
                 <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider mb-4">Detalles Operativos</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
                         <p className="text-xs text-gray-400 mb-1">Horario Laboral</p>
                         <div className="flex items-center gap-2 font-medium text-gray-800 dark:text-gray-200">
-                            <Clock size={16} className="text-blue-500"/>
+                            <Clock size={16} className="text-gold-premium"/>
                             {job.schedule || 'A convenir'}
                         </div>
                     </div>
                     <div>
                         <p className="text-xs text-gray-400 mb-1">Días de Trabajo</p>
                         <div className="flex items-center gap-2 font-medium text-gray-800 dark:text-gray-200">
-                            <Calendar size={16} className="text-blue-500"/>
+                            <Calendar size={16} className="text-gold-premium"/>
                             {job.workDays || 'Lunes a Viernes'}
                         </div>
                     </div>
@@ -126,7 +126,7 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
 
           {/* Sidebar Derecho */}
           <div className="lg:col-span-4">
-             <div className="sticky top-32 p-6 bg-blue-50 dark:bg-slate-800 rounded-xl border border-blue-100 dark:border-slate-700">
+             <div className="sticky top-32 p-6 bg-softgray dark:bg-slate-800 rounded-xl border border-blue-100 dark:border-slate-700">
                 <h4 className="font-bold text-gray-900 dark:text-white mb-4">
                    {isApplied ? '¡Ya te has postulado!' : '¿Te interesa este puesto?'}
                 </h4>

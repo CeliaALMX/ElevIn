@@ -11,12 +11,12 @@ const JobsView = ({ jobs, onViewDetail, userRole, onCreateJobClick, appliedJobs 
       
       <div className="flex flex-col gap-4">
         {isCompany && (
-          <div className="bg-gradient-to-r from-blue-900 to-blue-800 p-6 rounded-2xl shadow-lg flex justify-between items-center text-white">
+          <div className="bg-gradient-to-r from-emerald-dark to-emerald-medium p-6 rounded-2xl shadow-lg flex justify-between items-center text-white">
             <div>
               <h3 className="font-bold text-xl">Panel de Reclutamiento</h3>
-              <p className="text-sm text-blue-200 opacity-90 mt-1">Gestiona tus vacantes y encuentra talento.</p>
+              <p className="text-sm text-blue-100 opacity-90 mt-1">Gestiona tus vacantes y encuentra talento.</p>
             </div>
-            <Button onClick={onCreateJobClick} className="bg-white text-blue-900 hover:bg-blue-50 border-none flex items-center gap-2 shadow-none font-bold">
+            <Button onClick={onCreateJobClick} className="bg-gold-premium text-gold-premium hover:bg-gold-champagne border-none flex items-center gap-2 shadow-none font-bold">
               <PlusCircle size={20} /> <span className="hidden sm:inline">Nueva Vacante</span>
             </Button>
           </div>
@@ -45,7 +45,7 @@ const JobsView = ({ jobs, onViewDetail, userRole, onCreateJobClick, appliedJobs 
             <div 
               key={job.id}
               onClick={() => onViewDetail(job)}
-              className={`group bg-white dark:bg-slate-800 rounded-2xl shadow-sm border p-6 transition-all hover:shadow-md cursor-pointer relative overflow-hidden ${isApplied ? 'border-green-200 dark:border-green-900/30' : 'border-gray-100 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500'}`}
+              className={`group bg-white dark:bg-slate-800 rounded-2xl shadow-sm border p-6 transition-all hover:shadow-md cursor-pointer relative overflow-hidden ${isApplied ? 'border-green-200 dark:border-green-900/30' : 'border-gray-100 dark:border-slate-700 hover:border-gold-champagne dark:hover:border-gold-premium'}`}
             >
               <div className="flex gap-5 relative z-10">
                 <div className="shrink-0 pt-1">
@@ -55,7 +55,7 @@ const JobsView = ({ jobs, onViewDetail, userRole, onCreateJobClick, appliedJobs 
                 <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start mb-1">
                       <div className="flex flex-col sm:flex-row sm:items-center gap-2 pr-4">
-                        <h3 className="font-bold text-xl text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        <h3 className="font-bold text-xl text-gray-900 dark:text-white group-hover:text-gold-premium dark:group-hover:text-softgray transition-colors">
                             {job.title}
                         </h3>
                         {/* Etiqueta de Postulado en la lista */}
@@ -75,7 +75,7 @@ const JobsView = ({ jobs, onViewDetail, userRole, onCreateJobClick, appliedJobs 
                     </p>
 
                     <div className="flex flex-wrap gap-2 mb-4">
-                      <span className="flex items-center gap-1 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-3 py-1 rounded-full">
+                      <span className="flex items-center gap-1 text-xs font-medium bg-gold-champagne dark:bg-gold-premium text-ivory dark:text-softgray px-3 py-1 rounded-full">
                           <MapPin size={12} /> {job.location}
                       </span>
                       <span className="flex items-center gap-1 text-xs font-bold bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 px-3 py-1 rounded-full">
@@ -93,7 +93,7 @@ const JobsView = ({ jobs, onViewDetail, userRole, onCreateJobClick, appliedJobs 
               </div>
               
               <div className="mt-4 pt-3 border-t border-gray-50 dark:border-slate-700/50 flex justify-end">
-                <span className="text-xs font-bold text-blue-600 dark:text-blue-400 group-hover:underline">
+                <span className="text-xs font-bold text-gold-premium dark:text-ivory group-hover:underline">
                     Ver detalles completos &rarr;
                 </span>
               </div>

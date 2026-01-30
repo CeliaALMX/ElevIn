@@ -13,9 +13,9 @@ const MOCK_USERS = [
 const NetworkingView = () => {
   return (
     <div className="pb-24 pt-4 max-w-2xl mx-auto space-y-4 px-4">
-      <div className="bg-gradient-to-r from-blue-900 to-blue-800 p-6 rounded-xl text-white shadow-lg">
+      <div className="bg-gradient-to-r from-emerald-dark to-emerald-medium p-6 rounded-xl text-white shadow-lg">
         <h2 className="text-xl font-bold">Tu Red Profesional</h2>
-        <p className="text-sm text-blue-200 opacity-90">Conecta con 1,240 colegas del sector.</p>
+        <p className="text-sm text-blue-100 opacity-90">Conecta con 1,240 colegas del sector.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-3">
@@ -24,14 +24,14 @@ const NetworkingView = () => {
             <Avatar initials={u.initials} size="md" />
             <div className="flex-1 min-w-0">
               <h4 className="font-bold text-gray-900 dark:text-white truncate">{u.name}</h4>
-              <p className="text-xs text-blue-600 dark:text-yellow-400 font-medium truncate">{u.role}</p>
+              <p className="text-xs text-gold-premium dark:gold-champagne font-medium truncate">{u.role}</p>
               <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
                  <span className="flex items-center gap-0.5"><MapPin size={10}/> {u.location}</span>
                  <span>•</span>
                  <span>{u.company}</span>
               </div>
             </div>
-            <button className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 dark:bg-slate-700 dark:text-blue-300 transition-colors">
+            <button className="p-2 bg-blue-50 text-gold-premium rounded-full hover:bg-blue-100 dark:bg-slate-700 dark:text-blue-300 transition-colors">
               <UserPlus size={20} />
             </button>
           </Card>

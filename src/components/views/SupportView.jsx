@@ -28,18 +28,18 @@ const SupportView = () => {
   return (
     <div className="pb-24 pt-4 max-w-2xl mx-auto space-y-4 px-4">
       {/* Header de Soporte */}
-      <div className="bg-blue-900 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
+      <div className="bg-gradient-to-r from-emerald-dark to-emerald-medium rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
         <div className="relative z-10">
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <AlertTriangle className="text-yellow-400" /> Centro de Soporte
           </h2>
-          <p className="text-blue-200 text-sm mt-1">Resuelve fallas con la ayuda de la comunidad.</p>
+          <p className="text-blue-100 text-sm mt-1">Resuelve fallas con la ayuda de la comunidad.</p>
           <div className="mt-4 flex gap-2">
-             <div className="flex-1 bg-blue-800/50 rounded-lg flex items-center px-3 border border-blue-700">
-               <Search size={18} className="text-blue-300" />
+             <div className="flex-1 bg-white rounded-lg flex items-center px-3 border border-gold-premium">
+               <Search size={18} className="text-gold-premium" />
                <input 
                  placeholder="Buscar código de error..." 
-                 className="bg-transparent border-none p-2 w-full outline-none text-white text-sm placeholder-blue-400"
+                 className="bg-transparent border-none p-2 w-full outline-none text-white text-sm placeholder-gold-premium"
                />
              </div>
              <Button className="whitespace-nowrap">Preguntar</Button>
