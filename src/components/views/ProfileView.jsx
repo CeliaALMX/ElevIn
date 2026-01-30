@@ -58,6 +58,37 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
     } catch { return 0; }
   };
 
+  // --- FUNCIÓN AGREGADA PARA SUBIDA DE IMÁGENES (AVATAR Y PORTADA) ---
+  const handleImageUpload = async (e, type) => {
+    const file = e.target.files[0];
+    if (!file || !isOwner) return;
+
+    const isAvatar = type === 'avatar';
+    const setLoadingState = isAvatar ? setUploadingAvatar : setUploadingCover;
+    const dbField = isAvatar ? 'avatar_url' : 'cover_url';
+
+    setLoadingState(true);
+    try {
+      const publicUrl = await uploadFileToSupabase(file, user.id);
+      
+      if (publicUrl) {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ [dbField]: publicUrl })
+          .eq('id', user.id);
+
+        if (error) throw error;
+
+        setDisplayUser(prev => ({ ...prev, [dbField]: publicUrl }));
+        if (onProfileUpdate) onProfileUpdate();
+      }
+    } catch (error) {
+      console.error(`Error actualizando ${type}:`, error);
+    } finally {
+      setLoadingState(false);
+    }
+  };
+
   useEffect(() => {
     if (!user?.id || !currentUser?.id) return;
     if (justSavedRef.current) return;
@@ -301,13 +332,23 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
           <div className="h-40 md:h-56 bg-emerald-dark relative group">
                 {displayUser.cover_url ? <img src={displayUser.cover_url} alt="cover" className="w-full h-full object-cover opacity-100"/> : <div className="w-full h-full bg-gradient-to-r from-emerald-deep via-emerald-medium to-emerald-dark" />}
                 {isOwner && (
-                  <label className="absolute top-4 right-4 p-2 bg-black/40 text-white rounded-full cursor-pointer hover:bg-black/60"><Camera size={18} /><input type="file" className="hidden" accept="image/*" onChange={(e) => {handleImageUpload}} /></label>
+                  <label className="absolute top-4 right-4 p-2 bg-black/40 text-white rounded-full cursor-pointer hover:bg-black/60">
+                    {uploadingCover ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'cover')} />
+                  </label>
                 )}
           </div>
 
           <div className="px-6 pb-6 relative flex flex-col md:flex-row items-start md:items-end gap-4 md:gap-6">
-             <div className="relative -mt-12 md:-mt-16 z-10">
+             <div className="relative -mt-12 md:-mt-16 z-10 group">
                 <Avatar initials={displayUser.avatar} src={displayUser.avatar_url} size="xl" className="w-24 h-24 md:w-32 md:h-32 border-4 border-white dark:border-slate-800" />
+                {/* --- BOTÓN DE EDICIÓN DE AVATAR AGREGADO AQUÍ --- */}
+                {isOwner && (
+                  <label className="absolute bottom-1 right-1 p-2 bg-white dark:bg-slate-800 rounded-full shadow-lg cursor-pointer border border-gray-200 dark:border-slate-700 hover:bg-gray-50 transition-colors">
+                    {uploadingAvatar ? <Loader2 size={16} className="animate-spin text-blue-600"/> : <Camera size={16} className="text-gray-700 dark:text-gray-200"/>}
+                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'avatar')} />
+                  </label>
+                )}
              </div>
 
              <div className="flex-1 w-full mt-2 md:mt-0 md:mb-2">
