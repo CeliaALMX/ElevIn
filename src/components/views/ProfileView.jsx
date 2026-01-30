@@ -1,18 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Camera, MapPin, Briefcase, Mail, Phone, Edit2, X, Save, Award, 
-  FolderOpen, Building, Calendar, User, Plus, Trash2, CheckCircle, 
-  ArrowUpCircle, Loader2, MessageSquare 
+  Camera, Briefcase, Mail, Phone, Edit2, X, Save, Plus, Trash2, CheckCircle, 
+  ArrowUpCircle, Loader2, MessageSquare, MessageCircle 
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { uploadFileToSupabase } from '../../helpers/fileUpload';
 import { useComments } from '../../hooks/useComments';
+import { useChat } from '../../hooks/useChat'; // RUTA ACTUALIZADA
 import Card from '../ui/Card';
 import Avatar from '../ui/Avatar';
 import Button from '../ui/Button';
 import PostItem from '../feed/PostItem';
-
-const PUBLIC_DOMAINS = ['gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 'live.com', 'icloud.com'];
 
 const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   const [editing, setEditing] = useState(false);
@@ -21,7 +19,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   const [uploadingCover, setUploadingCover] = useState(false);
   const justSavedRef = useRef(false);
 
-  // --- ESTADOS DE DATOS ---
   const [editingExpId, setEditingExpId] = useState(null);
   const [tempExp, setTempExp] = useState(null);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -29,12 +26,11 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   const [userPosts, setUserPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(true);
 
-  // --- HOOK DE COMENTARIOS ---
+  const { openChatWithUser } = useChat();
   const {
     activeCommentsPostId,
     commentsData,
     toggleComments,
-    fetchComments,
     commentActions,
   } = useComments(setUserPosts, currentUser || {});
 
@@ -50,15 +46,11 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
 
   const getCommentsCount = async (postId) => {
     try {
-      const { count } = await supabase
-        .from('post_comments')
-        .select('id', { count: 'exact', head: true })
-        .eq('post_id', postId);
+      const { count } = await supabase.from('post_comments').select('id', { count: 'exact', head: true }).eq('post_id', postId);
       return count || 0;
     } catch { return 0; }
   };
 
-  // --- FUNCIÓN AGREGADA PARA SUBIDA DE IMÁGENES (AVATAR Y PORTADA) ---
   const handleImageUpload = async (e, type) => {
     const file = e.target.files[0];
     if (!file || !isOwner) return;
@@ -72,13 +64,8 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
       const publicUrl = await uploadFileToSupabase(file, user.id);
       
       if (publicUrl) {
-        const { error } = await supabase
-          .from('profiles')
-          .update({ [dbField]: publicUrl })
-          .eq('id', user.id);
-
+        const { error } = await supabase.from('profiles').update({ [dbField]: publicUrl }).eq('id', user.id);
         if (error) throw error;
-
         setDisplayUser(prev => ({ ...prev, [dbField]: publicUrl }));
         if (onProfileUpdate) onProfileUpdate();
       }
@@ -98,56 +85,27 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
     const checkFollow = async () => {
       if (isOwner) return;
       try {
-        const { data } = await supabase
-          .from('follows')
-          .select('*')
-          .eq('follower_id', currentUser.id)
-          .eq('following_id', user.id)
-          .single();
+        const { data } = await supabase.from('follows').select('*').eq('follower_id', currentUser.id).eq('following_id', user.id).single();
         setIsFollowing(!!data);
-      } catch (err) {
-        setIsFollowing(false);
-      }
+      } catch (err) { setIsFollowing(false); }
     };
 
     const fetchUserPosts = async () => {
       setPostsLoading(true);
       try {
-        const { data: postsData, error: pError } = await supabase
-          .from('posts')
-          .select(`*, profiles (full_name, role, avatar_initials, avatar_url, company)`)
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (pError) throw pError;
-
-        const { data: userVotes } = await supabase
-          .from('post_votes')
-          .select('post_id, vote_type')
-          .eq('user_id', currentUser.id);
-
-        const voteMap = {};
-        userVotes?.forEach(v => (voteMap[v.post_id] = v.vote_type));
+        const { data: postsData } = await supabase.from('posts').select(`*, profiles (full_name, role, avatar_initials, avatar_url, company)`).eq('user_id', user.id).order('created_at', { ascending: false });
+        
+        const { data: userVotes } = await supabase.from('post_votes').select('post_id, vote_type').eq('user_id', currentUser.id);
+        const voteMap = {}; userVotes?.forEach(v => (voteMap[v.post_id] = v.vote_type));
 
         const ids = (postsData || []).map(p => p.id);
         const counts = await Promise.all(ids.map(id => getCommentsCount(id)));
-        const countMap = {};
-        ids.forEach((id, idx) => (countMap[id] = counts[idx] || 0));
+        const countMap = {}; ids.forEach((id, idx) => (countMap[id] = counts[idx] || 0));
 
-        const finalPosts = (postsData || []).map(p => ({
-          ...p,
-          likes_count: p.likes_count || 0,
-          dislikes_count: p.dislikes_count || 0,
-          comments_count: countMap[p.id] ?? 0,
-          user_vote: voteMap[p.id] || null,
-        }));
-
-        setUserPosts(finalPosts);
-      } catch (err) {
-        console.error("Error posts:", err);
-      } finally {
-        setPostsLoading(false);
-      }
+        setUserPosts((postsData || []).map(p => ({
+          ...p, likes_count: p.likes_count || 0, dislikes_count: p.dislikes_count || 0, comments_count: countMap[p.id] ?? 0, user_vote: voteMap[p.id] || null,
+        })));
+      } catch (err) { console.error("Error posts:", err); } finally { setPostsLoading(false); }
     };
 
     checkFollow();
@@ -162,8 +120,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
             bio: user.bio || '',
             phone: user.phone || '',
             email: user.email || '',
-            certifications: user.certifications || '',
-            projects: user.projects || '',
             experience: Array.isArray(user.experience) ? user.experience : []
         });
     }
@@ -200,24 +156,9 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   const handleUpdatePost = async (postId, newContent, newMedia) => {
     const updates = { content: newContent };
     if (Array.isArray(newMedia)) updates.media = newMedia;
-  
-    const { error } = await supabase
-      .from('posts')
-      .update(updates)
-      .eq('id', postId)
-      .eq('user_id', currentUser.id);
-  
-    if (!error) {
-      setUserPosts(prev =>
-        prev.map(p =>
-          p.id === postId
-            ? { ...p, content: newContent, media: Array.isArray(newMedia) ? newMedia : p.media }
-            : p
-        )
-      );
-    }
+    const { error } = await supabase.from('posts').update(updates).eq('id', postId).eq('user_id', currentUser.id);
+    if (!error) setUserPosts(prev => prev.map(p => p.id === postId ? { ...p, content: newContent, media: Array.isArray(newMedia) ? newMedia : p.media } : p));
   };
-  
 
   const toggleFollow = async () => {
     if (!currentUser?.id || followLoading) return;
@@ -262,9 +203,7 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white">Trayectoria Laboral</h3>
                 </div>
                 {editing && !editingExpId && (
-                    <Button variant="ghost" onClick={() => { setTempExp({ id: Date.now(), company_name: '', position: '', is_current: false, start_date: '', end_date: '', boss: '', salary: '', work_email: '', description: '' }); setEditingExpId('NEW'); }} className="text-blue-600 text-sm">
-                        <Plus size={16} className="mr-1"/> Agregar
-                    </Button>
+                    <Button variant="ghost" onClick={() => { setTempExp({ id: Date.now(), company_name: '', position: '', is_current: false, start_date: '', end_date: '', boss: '', salary: '', work_email: '', description: '' }); setEditingExpId('NEW'); }} className="text-blue-600 text-sm"><Plus size={16} className="mr-1"/> Agregar</Button>
                 )}
             </div>
             
@@ -279,12 +218,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
                         <input type="text" placeholder="Puesto" value={tempExp.position} onChange={(e) => setTempExp({...tempExp, position: e.target.value})} className="p-2 text-sm border rounded dark:bg-slate-700" />
                         <input type="date" value={tempExp.start_date} onChange={(e) => setTempExp({...tempExp, start_date: e.target.value})} className="p-2 text-sm border rounded dark:bg-slate-700" />
                         <input type="date" value={tempExp.end_date} onChange={(e) => setTempExp({...tempExp, end_date: e.target.value})} disabled={tempExp.is_current} className="p-2 text-sm border rounded dark:bg-slate-700 disabled:opacity-50" />
-                        {tempExp.is_current && (
-                            <>
-                                <input type="email" placeholder="Correo Corporativo" value={tempExp.work_email} onChange={(e) => setTempExp({...tempExp, work_email: e.target.value})} className="p-2 text-sm border rounded dark:bg-slate-700" />
-                                <input type="text" placeholder="Jefe Directo" value={tempExp.boss} onChange={(e) => setTempExp({...tempExp, boss: e.target.value})} className="p-2 text-sm border rounded dark:bg-slate-700" />
-                            </>
-                        )}
                         <textarea placeholder="Descripción" value={tempExp.description} onChange={(e) => setTempExp({...tempExp, description: e.target.value})} className="md:col-span-2 p-2 text-sm border rounded dark:bg-slate-700" rows={3} />
                     </div>
                     <div className="flex justify-end gap-3 mt-4">
@@ -342,7 +275,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
           <div className="px-6 pb-6 relative flex flex-col md:flex-row items-start md:items-end gap-4 md:gap-6">
              <div className="relative -mt-12 md:-mt-16 z-10 group">
                 <Avatar initials={displayUser.avatar} src={displayUser.avatar_url} size="xl" className="w-24 h-24 md:w-32 md:h-32 border-4 border-white dark:border-slate-800" />
-                {/* --- BOTÓN DE EDICIÓN DE AVATAR AGREGADO AQUÍ --- */}
                 {isOwner && (
                   <label className="absolute bottom-1 right-1 p-2 bg-white dark:bg-slate-800 rounded-full shadow-lg cursor-pointer border border-gray-200 dark:border-slate-700 hover:bg-gray-50 transition-colors">
                     {uploadingAvatar ? <Loader2 size={16} className="animate-spin text-blue-600"/> : <Camera size={16} className="text-gray-700 dark:text-gray-200"/>}
@@ -370,9 +302,14 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
 
              <div className="absolute top-4 right-4 md:static md:mb-4 flex gap-2">
                 {!isOwner && (
-                    <Button onClick={toggleFollow} variant={isFollowing ? "outline" : "primary"} disabled={followLoading} className="gap-2">
-                        {followLoading ? <Loader2 className="animate-spin" size={16}/> : (isFollowing ? <><CheckCircle size={16}/> Siguiendo</> : <><Plus size={16}/> Seguir</>)}
-                    </Button>
+                    <>
+                        <Button onClick={toggleFollow} variant={isFollowing ? "outline" : "primary"} disabled={followLoading} className="gap-2">
+                            {followLoading ? <Loader2 className="animate-spin" size={16}/> : (isFollowing ? <><CheckCircle size={16}/> Siguiendo</> : <><Plus size={16}/> Seguir</>)}
+                        </Button>
+                        <Button onClick={() => openChatWithUser(displayUser)} variant="secondary" className="gap-2">
+                            <MessageCircle size={16} /> <span className="hidden sm:inline">Mensaje</span>
+                        </Button>
+                    </>
                 )}
                 {isOwner && (
                     editing ? (
@@ -407,7 +344,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
                     </div>
                 </div>
             </Card>
-            {/* ✅ AJUSTE: La trayectoria laboral ahora se renderiza en la columna izquierda, debajo de contacto */}
             {!isCompanyProfile && renderExperienceSection()}
         </div>
 
