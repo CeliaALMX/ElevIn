@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { ArrowUp, Loader2, Eye, EyeOff, Building2, User } from 'lucide-react';
 import Button from './ui/Button';
 import { supabase } from '../lib/supabase';
+// IMPORTANTE: Asegúrate de que la imagen esté en esta ruta
+import wallpaper from '../assets/wallpaper-Celia2.jpg';
 
 // Dominios bloqueados para empresas
 const PUBLIC_DOMAINS = ['gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 'live.com', 'icloud.com'];
@@ -109,7 +111,7 @@ const LoginScreen = () => {
         <input name="companyPhone" type="tel" placeholder="Teléfono" value={formData.companyPhone} onChange={handleChange} required={isCompany}
           className="w-full p-2 text-sm bg-white border border-gray-200 rounded outline-none focus:border-blue-500 transition-all" />
       </div>
-      <input name="address" type="text" placeholder="Dirección Fiscal" value={formData.address} onChange={handleChange} required={isCompany}
+      <input name="address" type="text" placeholder="RFC" value={formData.address} onChange={handleChange} required={isCompany}
           className="w-full p-2 text-sm bg-white border border-gray-200 rounded outline-none focus:border-blue-500 transition-all" />
       <input name="website" type="url" placeholder="Sitio Web (https://)" value={formData.website} onChange={handleChange}
           className="w-full p-2 text-sm bg-white border border-gray-200 rounded outline-none focus:border-blue-500 transition-all" />
@@ -119,7 +121,7 @@ const LoginScreen = () => {
   return (
     <div className="min-h-screen w-full flex bg-gray-50 dark:bg-slate-900 font-sans">
       
-      {/* PANEL IZQUIERDO */}
+      {/* PANEL IZQUIERDO (INTACTO) */}
       <div className="hidden lg:flex lg:w-1/2 bg-emerald-deep relative overflow-hidden flex-col justify-between p-12 text-ivory">
         <div className="absolute top-0 right-0 w-64 h-64 bg-gold-premium rounded-full mix-blend-multiply filter blur-3xl opacity-10 -translate-y-1/2 translate-x-1/2"></div>
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-medium rounded-full mix-blend-multiply filter blur-3xl opacity-20 translate-y-1/2 -translate-x-1/2"></div>
@@ -136,9 +138,15 @@ const LoginScreen = () => {
         <div className="z-10 text-xs text-gold-champagne">© 2026 AscenLin. v1.1.0</div>
       </div>
 
-      {/* PANEL DERECHO */}
-      <div className="w-full lg:w-1/2 h-screen overflow-y-auto flex items-center justify-center p-6 bg-ivory dark:bg-emerald-deep">
-        <div className="w-full max-w-md bg-white dark:bg-emerald-medium p-8 rounded-2xl shadow-xl border border-softgray dark:border-emerald-dark my-8">
+      {/* PANEL DERECHO (CON IMAGEN DE FONDO) */}
+      <div 
+        className="w-full lg:w-1/2 h-screen overflow-y-auto flex items-center justify-center p-6 bg-cover bg-center bg-no-repeat relative"
+        style={{ backgroundImage: `url(${wallpaper})` }}
+      >
+        {/* Capa opcional de superposición oscura para mejorar contraste si la imagen es muy clara (puedes ajustar opacity-10 a lo que gustes o quitarlo) */}
+        <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
+
+        <div className="w-full max-w-md bg-white dark:bg-emerald-medium p-8 rounded-2xl shadow-xl border border-softgray dark:border-emerald-dark my-8 relative z-10">
           
           <div className="mb-8">
             <h2 className="text-2xl font-bold text-emerald-deep dark:text-gold-premium">{isLogin ? '¡Hola de nuevo!' : 'Crea tu Cuenta'}</h2>
