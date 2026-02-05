@@ -17,6 +17,9 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState('');
 
+  // ✅ Confirmación de borrado (popover)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
   const conversationId = activeChat?.conversationId;
   const otherUser = activeChat.otherUser;
 
@@ -77,20 +80,31 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
           setMessages((prev) => {
             const incoming = payload.new;
 
-            const existsOptimistic = prev.findIndex(
-              (m) => m.isOptimistic && m.content === incoming.content && m.sender_id === incoming.sender_id
-            );
+            // Reconciliar optimistic (mismo sender + contenido + cercano en tiempo)
+            const incomingTs = incoming?.created_at ? new Date(incoming.created_at).getTime() : null;
 
-            if (existsOptimistic !== -1) {
-              const newArr = [...prev];
-              newArr[existsOptimistic] = incoming;
-              return newArr;
+            const idxOptimistic = prev.findIndex((m) => {
+              if (!m.isOptimistic) return false;
+              if (m.sender_id !== incoming.sender_id) return false;
+              if (m.content !== incoming.content) return false;
+
+              const mTs = m?.created_at ? new Date(m.created_at).getTime() : null;
+              if (!mTs || !incomingTs) return true;
+
+              return Math.abs(mTs - incomingTs) <= 20_000; // 20s
+            });
+
+            if (idxOptimistic !== -1) {
+              const next = [...prev];
+              next[idxOptimistic] = incoming;
+              return next;
             }
 
             if (prev.some((m) => m.id === incoming.id)) return prev;
 
             return [...prev, incoming];
           });
+
           scrollToBottom();
         }
       )
@@ -103,16 +117,15 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
           setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
         }
       )
-      // DELETE (eliminación)
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-        (payload) => {
-          const deleted = payload.old;
-          setMessages((prev) => prev.filter((m) => m.id !== deleted.id));
-          setEditingId((curr) => (curr === deleted.id ? null : curr));
-        }
-      )
+      // DELETE (eliminación) — sin filter por conversation_id (en DELETE a veces no viene)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) => {
+        const deletedId = payload.old?.id;
+        if (!deletedId) return;
+
+        setMessages((prev) => (prev.some((m) => m.id === deletedId) ? prev.filter((m) => m.id !== deletedId) : prev));
+        setEditingId((curr) => (curr === deletedId ? null : curr));
+        setConfirmDeleteId((curr) => (curr === deletedId ? null : curr));
+      })
       .subscribe();
 
     return () => {
@@ -130,26 +143,31 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const canEditMessage = (msg) => {
-    if (!msg) return false;
-    if (msg.isOptimistic) return false;
-    if (msg.sender_id !== currentUser?.id) return false;
-    if (!msg.created_at) return false;
-
+  const isWithinEditWindow = (msg) => {
+    if (!msg?.created_at) return false;
     const created = new Date(msg.created_at).getTime();
     const now = Date.now();
     const diffMin = (now - created) / (1000 * 60);
     return diffMin <= EDIT_WINDOW_MINUTES;
   };
 
+  const canEditMessage = (msg) => {
+    if (!msg) return false;
+    if (msg.isOptimistic) return false;
+    if (msg.sender_id !== currentUser?.id) return false;
+    return isWithinEditWindow(msg);
+  };
+
   const canDeleteMessage = (msg) => {
     if (!msg) return false;
     if (msg.isOptimistic) return false;
-    return msg.sender_id === currentUser?.id;
+    if (msg.sender_id !== currentUser?.id) return false;
+    return isWithinEditWindow(msg);
   };
 
   const startEdit = (msg) => {
     if (!canEditMessage(msg)) return;
+    setConfirmDeleteId(null);
     setEditingId(msg.id);
     setEditingValue(msg.content || '');
   };
@@ -160,17 +178,29 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
   };
 
   const saveEdit = async (msg) => {
-    if (!msg || !editingValue.trim()) return;
+    if (!msg) return;
+    const nextContent = editingValue.trim();
+    if (!nextContent) return;
     if (!canEditMessage(msg)) return;
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('messages')
-        .update({ content: editingValue.trim() })
+        .update({ content: nextContent })
         .eq('id', msg.id)
-        .eq('sender_id', currentUser.id);
+        .eq('sender_id', currentUser.id)
+        .select('id, content, created_at, sender_id, conversation_id');
 
       if (error) throw error;
+
+      if (!data || data.length === 0) {
+        console.warn('No rows updated (posible RLS).');
+        return;
+      }
+
+      const updated = data[0];
+
+      setMessages((prev) => prev.map((m) => (m.id === updated.id ? { ...m, content: updated.content } : m)));
 
       setEditingId(null);
       setEditingValue('');
@@ -179,7 +209,16 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
     }
   };
 
-  const deleteMessage = async (msg) => {
+  // ✅ Solo abre el popover, NO borra todavía
+  const requestDelete = (msg) => {
+    if (!msg || !canDeleteMessage(msg)) return;
+    setEditingId(null);
+    setEditingValue('');
+    setConfirmDeleteId(msg.id);
+  };
+
+  // ✅ Confirma y borra
+  const confirmDelete = async (msg) => {
     if (!msg || !canDeleteMessage(msg)) return;
 
     try {
@@ -190,10 +229,17 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
         .eq('sender_id', currentUser.id);
 
       if (error) throw error;
+
+      // UI inmediata (no depender de Realtime)
+      setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+      setEditingId((curr) => (curr === msg.id ? null : curr));
+      setConfirmDeleteId((curr) => (curr === msg.id ? null : curr));
     } catch (err) {
       console.error('Error delete message:', err);
     }
   };
+
+  const cancelDelete = () => setConfirmDeleteId(null);
 
   const handleSend = async (e) => {
     e?.preventDefault();
@@ -218,6 +264,7 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
     try {
       let currentConvId = conversationId;
 
+      // Si no existe conversación, crearla
       if (!currentConvId) {
         const { data: newConv, error: convError } = await supabase
           .from('conversations')
@@ -226,20 +273,41 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
           .single();
 
         if (convError) throw convError;
-        currentConvId = newConv.id;
 
+        currentConvId = newConv.id;
         updateActiveConversationId(currentConvId);
+
+        // Actualiza el optimistic con el conversation_id real
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, conversation_id: currentConvId } : m)));
       }
 
-      const { error: msgError } = await supabase.from('messages').insert([
-        {
-          conversation_id: currentConvId,
-          sender_id: currentUser.id,
-          content: contentToSend,
-        },
-      ]);
+      // INSERT con RETURN para reemplazar optimistic aunque Realtime falle
+      const { data: insertedRows, error: msgError } = await supabase
+        .from('messages')
+        .insert([
+          {
+            conversation_id: currentConvId,
+            sender_id: currentUser.id,
+            content: contentToSend,
+          },
+        ])
+        .select('*');
 
       if (msgError) throw msgError;
+
+      const inserted = insertedRows?.[0];
+
+      if (inserted) {
+        setMessages((prev) => {
+          const hasTemp = prev.some((m) => m.id === tempId);
+          const hasInserted = prev.some((m) => m.id === inserted.id);
+
+          if (hasTemp) return prev.map((m) => (m.id === tempId ? inserted : m));
+          if (hasInserted) return prev;
+
+          return [...prev, inserted];
+        });
+      }
 
       await supabase.from('conversations').update({ updated_at: new Date() }).eq('id', currentConvId);
     } catch (err) {
@@ -307,13 +375,12 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
           )
         )}
 
-        {messages.length === 0 && isMutual && (
-          <div className="text-center text-gray-400 text-xs mt-4">Inicia la conversación...</div>
-        )}
+        {messages.length === 0 && isMutual && <div className="text-center text-gray-400 text-xs mt-4">Inicia la conversación...</div>}
 
         {messages.map((msg) => {
           const mine = msg.sender_id === currentUser.id;
           const isEditing = editingId === msg.id;
+          const isConfirmingDelete = confirmDeleteId === msg.id;
 
           return (
             <div key={msg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-in fade-in zoom-in duration-200`}>
@@ -362,6 +429,27 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
                     </div>
                   )}
 
+                  {/* ✅ Confirmación de borrado (popover) */}
+                  {mine && !isEditing && !msg.isOptimistic && isConfirmingDelete && (
+                    <div className="absolute -top-12 right-0 z-20 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 shadow-lg rounded-lg px-3 py-2 flex items-center gap-2">
+                      <span className="text-xs text-gray-700 dark:text-white whitespace-nowrap">¿Eliminar?</span>
+                      <button
+                        type="button"
+                        onClick={cancelDelete}
+                        className="text-xs px-2 py-1 rounded-md bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-800 dark:text-white"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => confirmDelete(msg)}
+                        className="text-xs px-2 py-1 rounded-md bg-red-600 hover:bg-red-700 text-white"
+                      >
+                        Sí
+                      </button>
+                    </div>
+                  )}
+
                   {/* Acciones (solo mensajes propios) */}
                   {mine && !isEditing && !msg.isOptimistic && (
                     <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
@@ -378,9 +466,9 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
                       {canDeleteMessage(msg) && (
                         <button
                           type="button"
-                          onClick={() => deleteMessage(msg)}
+                          onClick={() => requestDelete(msg)}
                           className="p-1 rounded-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 shadow hover:scale-105 transition-transform"
-                          title="Eliminar"
+                          title="Eliminar (30 min)"
                         >
                           <Trash2 size={14} className="text-red-600" />
                         </button>
@@ -389,7 +477,6 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
                   )}
                 </div>
 
-                {/* Timestamp */}
                 <div className={`mt-1 text-[10px] text-gray-400 ${mine ? 'text-right pr-1' : 'text-left pl-1'}`}>
                   {formatTime(msg.created_at)}
                 </div>
