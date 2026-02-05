@@ -9,6 +9,7 @@ import Button from '../ui/Button';
 import PostItem from '../feed/PostItem';
 import PostDetailModal from '../modals/PostDetailModal';
 import { JOBS_DATA } from '../../data/mockData';
+import { useNotifications } from '../../context/NotificationContext'; // <--- Importar Contexto
 
 const FeedView = ({ user, onViewProfile }) => {
   const [posts, setPosts] = useState([]);
@@ -19,6 +20,8 @@ const FeedView = ({ user, onViewProfile }) => {
   const [previews, setPreviews] = useState([]); // [{ url, type }]
   const [isUploading, setIsUploading] = useState(false);
   const [fullScreenPost, setFullScreenPost] = useState(null);
+
+  const { notify } = useNotifications(); // <--- Hook
 
   const fileInputRef = useRef(null);
 
@@ -199,7 +202,14 @@ const FeedView = ({ user, onViewProfile }) => {
     }));
 
     if (currentVote) await supabase.from('post_votes').delete().match({ user_id: user.id, post_id: postId });
-    if (newVote) await supabase.from('post_votes').upsert({ user_id: user.id, post_id: postId, vote_type: newVote });
+    if (newVote) {
+        await supabase.from('post_votes').upsert({ user_id: user.id, post_id: postId, vote_type: newVote });
+
+        // --- TRIGGER NOTIFICATION ---
+        await notify({ recipientId: post.user_id, type: newVote, entityId: postId });
+        // ----------------------------
+    } 
+
     const rpc = newVote === 'like'
       ? 'increment_likes'
       : (newVote === 'dislike'

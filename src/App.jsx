@@ -12,6 +12,10 @@ import ReportJobModal from './components/modals/ReportJobModal';
 import { ChatProvider } from './context/ChatContext';
 import ChatWidget from './components/chat/ChatWidget';
 
+// --- NOTIFICATION CONTEXT & COMPONENT (NUEVO) ---
+import { NotificationProvider } from './context/NotificationContext';
+import NotificationBell from './components/ui/NotificationBell';
+
 // --- COMPONENTES MODULARIZADOS ---
 import SearchBar from './components/ui/SearchBar';
 
@@ -298,128 +302,128 @@ function App() {
   if (!user) return <LoginScreen />;
 
   return (
-    <ChatProvider currentUser={user}>
-      <div className="min-h-screen w-full bg-ivory dark:bg-emerald-deep transition-colors duration-300">
-        
-        {/* NAVBAR */}
-        <nav className="sticky top-0 z-30 bg-emerald-deep text-ivory shadow-md border-b-4 border-gold-champagne">
-          <div className="max-w-7xl mx-auto px-2 md:px-4 h-16 flex items-center justify-between">
-            
-            <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0 cursor-pointer" onClick={() => setView('feed')}>
-              <ArrowUp className="bg-gold-premium text-gold-champagne p-0.5 rounded" size={28} />
-              <span className="hidden md:inline text-xl font-bold tracking-tight text-gold-premium">AscenLin</span>
+    <NotificationProvider currentUser={user}>
+      <ChatProvider currentUser={user}>
+        <div className="min-h-screen w-full bg-ivory dark:bg-emerald-deep transition-colors duration-300">
+          
+          {/* NAVBAR */}
+          <nav className="sticky top-0 z-30 bg-emerald-deep text-ivory shadow-md border-b-4 border-gold-champagne">
+            <div className="max-w-7xl mx-auto px-2 md:px-4 h-16 flex items-center justify-between">
+              
+              <div className="flex items-center gap-2 font-bold text-lg text-yellow-400 shrink-0 cursor-pointer" onClick={() => setView('feed')}>
+                <ArrowUp className="bg-gold-premium text-gold-champagne p-0.5 rounded" size={28} />
+                <span className="hidden md:inline text-xl font-bold tracking-tight text-gold-premium">AscenLin</span>
+              </div>
+
+              <div className="hidden md:flex h-full items-center gap-1 ml-4">
+                 <DesktopNavLink icon={Home} label="Inicio" active={view === 'feed'} onClick={() => setView('feed')} />
+                 <DesktopNavLink icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
+                 <DesktopNavLink icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
+                 <DesktopNavLink icon={LifeBuoy} label="Soporte" active={view === 'support'} onClick={() => setView('support')} />
+              </div>
+
+              <SearchBar onSearch={handlePerformSearch} />
+
+              <div className="flex items-center gap-2 md:gap-4 shrink-0">
+                 <button onClick={handleGoToMyProfile} className={`hidden md:flex items-center gap-2 p-1 pr-3 rounded-full transition-colors group ${view === 'profile' && !viewedProfile ? 'bg-gold-premium' : 'hover:bg-gold-premium'}`}>
+                   <div className="w-8 h-8 rounded-full bg-gold-champagne border border-gold-champagne flex items-center justify-center text-xs font-bold text-white overflow-hidden">
+                      <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="border-none" />
+                   </div>
+                   <span className="text-xs text-blue-100 font-bold group-hover:text-white max-w-[100px] truncate">{user.name}</span>
+                 </button>
+                 
+                 <div className="hidden md:block h-6 w-px bg-gold-premium mx-1"></div>
+                 
+                 {/* --- ORDEN SOLICITADO: MENSAJES -> NOTIFICACIONES -> CONFIGURACIÓN --- */}
+                 
+                 {/* 1. Mensajes */}
+                 <button 
+                    onClick={() => setView('chat')} 
+                    className={`p-2 rounded-full transition-all ${view === 'chat' ? 'bg-gold-premium text-white shadow-lg' : 'text-gold-champagne hover:text-white hover:bg-white/10'}`}
+                    title="Mensajes"
+                 >
+                   <MessageCircle size={22} />
+                 </button>
+
+                 {/* 2. Notificaciones (REEMPLAZO) */}
+                 <NotificationBell />
+
+                 {/* 3. Configuración */}
+                 <button 
+                    onClick={() => setView('settings')} 
+                    className={`hidden md:block p-2 rounded-full transition-colors ${view === 'settings' ? 'bg-gold-premium text-white shadow-lg' : 'text-gold-champagne hover:text-white hover:bg-white/10'}`}
+                    title="Configuración"
+                 >
+                   <Settings size={22} />
+                 </button>
+
+                 {/* Logout */}
+                 <button onClick={handleLogout} className="hidden sm:block text-red-300 hover:text-red-100 transition-colors p-2" title="Cerrar sesión">
+                   <LogOut size={22} />
+                 </button>
+              </div>
             </div>
+          </nav>
 
-            <div className="hidden md:flex h-full items-center gap-1 ml-4">
-               <DesktopNavLink icon={Home} label="Inicio" active={view === 'feed'} onClick={() => setView('feed')} />
-               <DesktopNavLink icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
-               <DesktopNavLink icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
-               <DesktopNavLink icon={LifeBuoy} label="Soporte" active={view === 'support'} onClick={() => setView('support')} />
-            </div>
+          <main className={`min-h-[calc(100vh-4rem)] ${(view === 'job-detail' || view === 'create-job' || view === 'chat') ? 'w-full' : 'max-w-7xl mx-auto p-4'}`}>
+            <Suspense fallback={<PageLoader />}>
+                {view === 'feed' && <FeedView user={user} onViewProfile={handleViewUserProfile} />}
+                
+                {view === 'jobs' && (
+                  <JobsView 
+                    jobs={visibleJobs} 
+                    userRole={user.role}
+                    onCreateJobClick={handleGoToCreateJob} 
+                    onViewDetail={handleViewJobDetail} 
+                    appliedJobs={appliedJobs} 
+                  />
+                )}
 
-            <SearchBar onSearch={handlePerformSearch} />
+                {view === 'job-detail' && (
+                  <JobDetailView 
+                    job={selectedJob} 
+                    onBack={() => setView('jobs')} 
+                    onApply={handleApplyJob} 
+                    userRole={user.role}
+                    isApplied={appliedJobs.includes(selectedJob?.id)} 
+                    onReport={handleOpenReport}
+                    onViewCompany={handleViewCompanyProfile} 
+                  />
+                )}
 
-            <div className="flex items-center gap-2 md:gap-4 shrink-0">
-               <button onClick={handleGoToMyProfile} className={`hidden md:flex items-center gap-2 p-1 pr-3 rounded-full transition-colors group ${view === 'profile' && !viewedProfile ? 'bg-gold-premium' : 'hover:bg-gold-premium'}`}>
-                 <div className="w-8 h-8 rounded-full bg-gold-champagne border border-gold-champagne flex items-center justify-center text-xs font-bold text-white overflow-hidden">
-                    <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="border-none" />
-                 </div>
-                 <span className="text-xs text-blue-100 font-bold group-hover:text-white max-w-[100px] truncate">{user.name}</span>
-               </button>
-               
-               <div className="hidden md:block h-6 w-px bg-gold-premium mx-1"></div>
-               
-               {/* --- ORDEN SOLICITADO: MENSAJES -> NOTIFICACIONES -> CONFIGURACIÓN --- */}
-               
-               {/* 1. Mensajes */}
-               <button 
-                  onClick={() => setView('chat')} 
-                  className={`p-2 rounded-full transition-all ${view === 'chat' ? 'bg-gold-premium text-white shadow-lg' : 'text-gold-champagne hover:text-white hover:bg-white/10'}`}
-                  title="Mensajes"
-               >
-                 <MessageCircle size={22} />
-               </button>
+                {view === 'create-job' && (
+                  <CreateJobView onCreate={handleCreateJob} onCancel={() => setView('jobs')} currentUser={user} />
+                )}
 
-               {/* 2. Notificaciones */}
-               <button className="p-2 text-gold-champagne hover:text-white hover:bg-white/10 rounded-full transition-colors" title="Notificaciones">
-                  <Bell size={22} />
-               </button>
+                {view === 'search' && <SearchView results={searchResults} loading={isSearching} onItemClick={handleSearchResultClick} />}
 
-               {/* 3. Configuración */}
-               <button 
-                  onClick={() => setView('settings')} 
-                  className={`hidden md:block p-2 rounded-full transition-colors ${view === 'settings' ? 'bg-gold-premium text-white shadow-lg' : 'text-gold-champagne hover:text-white hover:bg-white/10'}`}
-                  title="Configuración"
-               >
-                 <Settings size={22} />
-               </button>
+                {view === 'networking' && <NetworkingView />}
+                {view === 'support' && <SupportView />}
+                {view === 'chat' && <ConversationsView currentUser={user} />}
+                
+                {view === 'profile' && (
+                    <ProfileView user={viewedProfile || user} currentUser={user} onProfileUpdate={handleProfileRefresh} />
+                )}
+                
+                {view === 'settings' && <SettingsView isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />}
+            </Suspense>
+          </main>
 
-               {/* Logout */}
-               <button onClick={handleLogout} className="hidden sm:block text-red-300 hover:text-red-100 transition-colors p-2" title="Cerrar sesión">
-                 <LogOut size={22} />
-               </button>
-            </div>
+          <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t dark:border-slate-700 flex justify-around p-2 pb-safe z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+            <NavButton icon={Home} label="Inicio" active={view === 'feed'} onClick={() => setView('feed')} />
+            <NavButton icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
+            <NavButton icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
+            <NavButton icon={MessageCircle} label="Chat" active={view === 'chat'} onClick={() => setView('chat')} />
+            <NavButton icon={User} label="Perfil" active={view === 'profile'} onClick={handleGoToMyProfile} />
           </div>
-        </nav>
 
-        <main className={`min-h-[calc(100vh-4rem)] ${(view === 'job-detail' || view === 'create-job' || view === 'chat') ? 'w-full' : 'max-w-7xl mx-auto p-4'}`}>
-          <Suspense fallback={<PageLoader />}>
-              {view === 'feed' && <FeedView user={user} onViewProfile={handleViewUserProfile} />}
-              
-              {view === 'jobs' && (
-                <JobsView 
-                  jobs={visibleJobs} 
-                  userRole={user.role}
-                  onCreateJobClick={handleGoToCreateJob} 
-                  onViewDetail={handleViewJobDetail} 
-                  appliedJobs={appliedJobs} 
-                />
-              )}
+          <ChatWidget currentUser={user} />
+          
+          <ReportJobModal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} onSubmit={handleSubmitReport} jobTitle={jobToReport?.title} />
 
-              {view === 'job-detail' && (
-                <JobDetailView 
-                  job={selectedJob} 
-                  onBack={() => setView('jobs')} 
-                  onApply={handleApplyJob} 
-                  userRole={user.role}
-                  isApplied={appliedJobs.includes(selectedJob?.id)} 
-                  onReport={handleOpenReport}
-                  onViewCompany={handleViewCompanyProfile} 
-                />
-              )}
-
-              {view === 'create-job' && (
-                <CreateJobView onCreate={handleCreateJob} onCancel={() => setView('jobs')} currentUser={user} />
-              )}
-
-              {view === 'search' && <SearchView results={searchResults} loading={isSearching} onItemClick={handleSearchResultClick} />}
-
-              {view === 'networking' && <NetworkingView />}
-              {view === 'support' && <SupportView />}
-              {view === 'chat' && <ConversationsView currentUser={user} />}
-              
-              {view === 'profile' && (
-                  <ProfileView user={viewedProfile || user} currentUser={user} onProfileUpdate={handleProfileRefresh} />
-              )}
-              
-              {view === 'settings' && <SettingsView isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />}
-          </Suspense>
-        </main>
-
-        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t dark:border-slate-700 flex justify-around p-2 pb-safe z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
-          <NavButton icon={Home} label="Inicio" active={view === 'feed'} onClick={() => setView('feed')} />
-          <NavButton icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
-          <NavButton icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
-          <NavButton icon={MessageCircle} label="Chat" active={view === 'chat'} onClick={() => setView('chat')} />
-          <NavButton icon={User} label="Perfil" active={view === 'profile'} onClick={handleGoToMyProfile} />
         </div>
-
-        <ChatWidget currentUser={user} />
-        
-        <ReportJobModal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} onSubmit={handleSubmitReport} jobTitle={jobToReport?.title} />
-
-      </div>
-    </ChatProvider>
+      </ChatProvider>
+    </NotificationProvider>
   );
 }
 

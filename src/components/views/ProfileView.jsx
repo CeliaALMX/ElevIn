@@ -6,7 +6,8 @@ import {
 import { supabase } from '../../lib/supabase';
 import { uploadFileToSupabase } from '../../helpers/fileUpload';
 import { useComments } from '../../hooks/useComments';
-import { useChat } from '../../hooks/useChat'; // RUTA ACTUALIZADA
+import { useChat } from '../../hooks/useChat';
+import { useNotifications } from '../../context/NotificationContext'; // <--- Importar Contexto
 import Card from '../ui/Card';
 import Avatar from '../ui/Avatar';
 import Button from '../ui/Button';
@@ -27,6 +28,8 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   const [postsLoading, setPostsLoading] = useState(true);
 
   const { openChatWithUser } = useChat();
+  const { notify } = useNotifications(); // <--- Hook
+
   const {
     activeCommentsPostId,
     commentsData,
@@ -142,7 +145,13 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
 
     try {
       if (currentVote) await supabase.from('post_votes').delete().match({ user_id: currentUser.id, post_id: postId });
-      if (newVote) await supabase.from('post_votes').upsert({ user_id: currentUser.id, post_id: postId, vote_type: newVote });
+      if (newVote) {
+          await supabase.from('post_votes').upsert({ user_id: currentUser.id, post_id: postId, vote_type: newVote });
+
+          // --- TRIGGER NOTIFICATION ---
+          await notify({ recipientId: post.user_id, type: newVote, entityId: postId });
+      }
+
       const rpcName = newVote === 'like' ? 'increment_likes' : (newVote === 'dislike' ? 'increment_dislikes' : (currentVote === 'like' ? 'decrement_likes' : 'decrement_dislikes'));
       await supabase.rpc(rpcName, { post_id: postId });
     } catch (e) { console.error(e); }
@@ -170,6 +179,9 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
       } else {
         await supabase.from('follows').insert([{ follower_id: currentUser.id, following_id: user.id }]);
         setIsFollowing(true);
+
+        // --- TRIGGER NOTIFICATION ---
+        await notify({ recipientId: user.id, type: 'follow' });
       }
     } finally { setFollowLoading(false); }
   };

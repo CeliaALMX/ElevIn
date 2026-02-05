@@ -68,7 +68,8 @@ const PostItem = ({
   const submitComment = async () => {
     if (!newCommentText.trim()) return;
     setSendingComment(true);
-    await onCommentAction.add(post.id, newCommentText);
+    // ✅ PASAMOS EL ID DEL DUEÑO DEL POST PARA NOTIFICARLE
+    await onCommentAction.add(post.id, newCommentText, post.user_id);
     setNewCommentText('');
     setSendingComment(false);
   };

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, X, Minus, AlertTriangle, Loader2, Pencil, Trash2, Check, Ban } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useChat } from '../../hooks/useChat';
+import { useNotifications } from '../../context/NotificationContext'; // <--- Importar
 import Avatar from '../ui/Avatar';
 import Button from '../ui/Button';
 
@@ -9,6 +10,8 @@ const EDIT_WINDOW_MINUTES = 30;
 
 const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = false }) => {
   const { updateActiveConversationId } = useChat();
+  const { notify } = useNotifications(); // <--- Hook
+  
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [isMutual, setIsMutual] = useState(true);
@@ -307,6 +310,10 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
 
           return [...prev, inserted];
         });
+
+        // --- TRIGGER NOTIFICATION ---
+        await notify({ recipientId: otherUser.id, type: 'message', entityId: currentConvId });
+        // ----------------------------
       }
 
       await supabase.from('conversations').update({ updated_at: new Date() }).eq('id', currentConvId);

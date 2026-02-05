@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useNotifications } from '../context/NotificationContext';
 
 export const useComments = (setPosts, user) => {
   const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
   const [commentsData, setCommentsData] = useState({});
   const [loadingComments, setLoadingComments] = useState(false);
+  
+  const { notify } = useNotifications();
 
   const sortComments = (comments) => {
     return [...comments].sort((a, b) => {
@@ -93,7 +96,7 @@ export const useComments = (setPosts, user) => {
     fetchComments(postId);
   };
 
-  const addComment = async (postId, content) => {
+  const addComment = async (postId, content, postOwnerId) => {
     if (!content?.trim()) return;
 
     // ✅ Optimista como likes/dislikes
@@ -114,6 +117,12 @@ export const useComments = (setPosts, user) => {
       alert('No se pudo comentar. Revisa permisos (RLS) o conexión.');
       return;
     }
+
+    // --- TRIGGER NOTIFICATION ---
+    if (postOwnerId) {
+        await notify({ recipientId: postOwnerId, type: 'comment', entityId: postId });
+    }
+    // ----------------------------
 
     // Refrescar lista y corregir contador al total real
     await fetchComments(postId);
