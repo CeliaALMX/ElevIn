@@ -125,6 +125,8 @@ const PostItem = ({
     );
   };
 
+  const displayRole = (post.profiles?.role === 'Admin') ? 'Técnico' : (post.profiles?.role || 'Miembro');
+
   return (
     <Card className="animate-in fade-in slide-in-from-bottom-2 duration-500">
       <div className="flex gap-3 mb-2 items-start">
@@ -140,7 +142,7 @@ const PostItem = ({
                 {post.profiles?.full_name || 'Usuario'}
               </h4>
               <span className="text-[10px] text-gold-premium dark:text-gold-champagne bg-emerald-dark/10 dark:bg-emerald-deep px-2 py-0.5 rounded-full inline-block mt-0.5 w-fit">
-                {post.profiles?.role || 'Miembro'}
+                {displayRole}
               </span>
             </div>
           </div>

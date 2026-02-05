@@ -38,6 +38,7 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   } = useComments(setUserPosts, currentUser || {});
 
   const [displayUser, setDisplayUser] = useState(user || {});
+  const publicRoleLabel = (displayUser?.role === 'Admin') ? 'Técnico' : (displayUser?.role || 'Sin puesto definido');
   
   const isOwner = currentUser?.id && user?.id && user.id === currentUser.id;
   const isCompanyProfile = user?.role === 'Empresa';
@@ -307,7 +308,7 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
                             {displayUser.name || displayUser.full_name}
                             {isCompanyProfile && <span className="text-xs bg-gray-100 text-gold-premium px-2 py-0.5 rounded-full">Empresa</span>}
                         </h1>
-                        <p className="text-lg text-gold-premium font-medium">{displayUser.role || 'Sin puesto definido'}</p>
+                        <p className="text-lg text-gold-premium font-medium">{publicRoleLabel}</p>
                     </div>
                 )}
              </div>

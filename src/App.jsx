@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
-import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings, Loader2, MessageCircle } from 'lucide-react';
+import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings, Loader2, MessageCircle, Shield } from 'lucide-react'; // --- MODIFICADO: Importé Shield
 import { supabase } from './lib/supabase';
 
 // --- COMPONENTES UI ---
@@ -12,7 +12,7 @@ import ReportJobModal from './components/modals/ReportJobModal';
 import { ChatProvider } from './context/ChatContext';
 import ChatWidget from './components/chat/ChatWidget';
 
-// --- NOTIFICATION CONTEXT & COMPONENT (NUEVO) ---
+// --- NOTIFICATION CONTEXT & COMPONENT ---
 import { NotificationProvider } from './context/NotificationContext';
 import NotificationBell from './components/ui/NotificationBell';
 
@@ -30,6 +30,8 @@ const JobDetailView = lazy(() => import('./components/views/JobDetailView'));
 const CreateJobView = lazy(() => import('./components/views/CreateJobView'));
 const SearchView = lazy(() => import('./components/views/SearchView'));
 const ConversationsView = lazy(() => import('./components/views/ConversationsView'));
+// --- NUEVO: VISTA DE ADMIN ---
+const AdminDashboard = lazy(() => import('./components/views/AdminDashboard'));
 
 import { JOBS_DATA } from './data/mockData';
 
@@ -41,14 +43,10 @@ const PageLoader = () => (
 
 function App() {
   const [user, setUser] = useState(null);
-  
-  // PERSISTENCIA DE VISTA: Recuperar del localStorage o default 'feed'
   const [view, setView] = useState(() => localStorage.getItem('elevin_view') || 'feed');
-  
   const [sessionLoading, setSessionLoading] = useState(true);
   const [viewedProfile, setViewedProfile] = useState(null);
 
-  // Guardar vista en localStorage
   useEffect(() => {
     localStorage.setItem('elevin_view', view);
   }, [view]);
@@ -89,9 +87,21 @@ function App() {
   useEffect(() => { localStorage.setItem('elevin_applications', JSON.stringify(appliedJobs)); }, [appliedJobs]);
   useEffect(() => { localStorage.setItem('elevin_reported', JSON.stringify(reportedJobs)); }, [reportedJobs]);
 
-  const fetchProfile = async (userId) => {
+  /**
+   * fetchProfile
+   * - includeAdmin=true  -> SOLO para el usuario logueado (necesita saber si es admin)
+   * - includeAdmin=false -> perfiles públicos (NO trae is_admin)
+   */
+  const fetchProfile = async (userId, { includeAdmin = false } = {}) => {
     try {
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      const publicSelect = 'id, full_name, role, avatar_initials, avatar_url, cover_url, bio, company, location, email, phone, certifications, projects, experience';
+      const privateSelect = `${publicSelect}, is_admin`;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select(includeAdmin ? privateSelect : publicSelect)
+        .eq('id', userId)
+        .single();
       if (error) throw error; 
 
       if (data) {
@@ -101,10 +111,14 @@ function App() {
             email = authData?.user?.email || 'No definido';
         }
 
+        // Seguridad/UI: el rol público NO debe exponer "Admin".
+        // Si por legado existe role='Admin', lo tratamos como un rol público normal (fallback).
+        const publicRole = data.role === 'Admin' ? 'Técnico' : data.role;
+
         return { 
           id: data.id, 
           name: data.full_name, 
-          role: data.role, 
+          role: publicRole, 
           avatar: data.avatar_initials, 
           avatar_url: data.avatar_url, 
           cover_url: data.cover_url, 
@@ -116,6 +130,8 @@ function App() {
           certifications: data.certifications || '',
           projects: data.projects || '',
           experience: Array.isArray(data.experience) ? data.experience : (data.experience ? [data.experience] : []),
+          // Bandera interna (solo para el usuario logueado)
+          ...(includeAdmin ? { is_admin: !!data.is_admin } : {}),
         };
       }
       return null;
@@ -130,7 +146,7 @@ function App() {
     const init = async () => { 
         const { data: { session } } = await supabase.auth.getSession(); 
         if (session && mounted) {
-            const profile = await fetchProfile(session.user.id);
+            const profile = await fetchProfile(session.user.id, { includeAdmin: true });
             if (mounted) setUser(profile);
         }
         if (mounted) setSessionLoading(false); 
@@ -139,7 +155,7 @@ function App() {
     
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => { 
         if (session) {
-            const profile = await fetchProfile(session.user.id);
+            const profile = await fetchProfile(session.user.id, { includeAdmin: true });
             if (mounted) setUser(profile);
         } else { 
             if (mounted) setUser(null); 
@@ -154,7 +170,7 @@ function App() {
 
   const handleProfileRefresh = async () => { 
       if (user?.id) {
-          const updated = await fetchProfile(user.id);
+          const updated = await fetchProfile(user.id, { includeAdmin: true });
           setUser(updated);
       }
   };
@@ -198,7 +214,7 @@ function App() {
   
   const handleViewCompanyProfile = async (job) => {
     if (job.user_id) {
-        const profile = await fetchProfile(job.user_id);
+        const profile = await fetchProfile(job.user_id, { includeAdmin: false });
         if (profile) {
             setViewedProfile(profile);
             setView('profile');
@@ -207,6 +223,7 @@ function App() {
             alert("No se pudo cargar el perfil.");
         }
     } else {
+         // Mock fallback code ...
         const mockProfile = {
             id: 'mock-' + job.id,
             name: job.company,
@@ -232,7 +249,7 @@ function App() {
         handleGoToMyProfile();
         return;
     }
-    const profile = await fetchProfile(userId);
+    const profile = await fetchProfile(userId, { includeAdmin: false });
     if (profile) {
         setViewedProfile(profile);
         setView('profile');
@@ -254,15 +271,25 @@ function App() {
     window.scrollTo(0,0);
 
     try {
-        const { data: usersFound } = await supabase.from('profiles').select('*').ilike('full_name', `%${query}%`).limit(10);
+        // IMPORTANTE: NO exponer is_admin (ni otros campos internos) en búsquedas públicas
+        const { data: usersFound } = await supabase
+          .from('profiles')
+          .select('id, full_name, role, avatar_initials, avatar_url, company, location')
+          .ilike('full_name', `%${query}%`)
+          .limit(10);
         
         const jobsFound = jobs.filter(job => 
             job.title.toLowerCase().includes(query.toLowerCase()) || 
             job.company.toLowerCase().includes(query.toLowerCase())
         );
 
+        const safeUsers = (usersFound || []).map(u => ({
+          ...u,
+          role: u.role === 'Admin' ? 'Técnico' : u.role,
+        }));
+
         setSearchResults({
-            users: usersFound || [],
+            users: safeUsers,
             jobs: jobsFound || []
         });
     } catch (err) {
@@ -320,6 +347,10 @@ function App() {
                  <DesktopNavLink icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
                  <DesktopNavLink icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
                  <DesktopNavLink icon={LifeBuoy} label="Soporte" active={view === 'support'} onClick={() => setView('support')} />
+                 {/* --- NUEVO: ENLACE ADMIN (SOLO VISIBLE PARA ADMINS) --- */}
+                 {user.is_admin && (
+                    <DesktopNavLink icon={Shield} label="Admin" active={view === 'admin'} onClick={() => setView('admin')} />
+                 )}
               </div>
 
               <SearchBar onSearch={handlePerformSearch} />
@@ -334,9 +365,6 @@ function App() {
                  
                  <div className="hidden md:block h-6 w-px bg-gold-premium mx-1"></div>
                  
-                 {/* --- ORDEN SOLICITADO: MENSAJES -> NOTIFICACIONES -> CONFIGURACIÓN --- */}
-                 
-                 {/* 1. Mensajes */}
                  <button 
                     onClick={() => setView('chat')} 
                     className={`p-2 rounded-full transition-all ${view === 'chat' ? 'bg-gold-premium text-white shadow-lg' : 'text-gold-champagne hover:text-white hover:bg-white/10'}`}
@@ -345,10 +373,8 @@ function App() {
                    <MessageCircle size={22} />
                  </button>
 
-                 {/* 2. Notificaciones (REEMPLAZO) */}
                  <NotificationBell />
 
-                 {/* 3. Configuración */}
                  <button 
                     onClick={() => setView('settings')} 
                     className={`hidden md:block p-2 rounded-full transition-colors ${view === 'settings' ? 'bg-gold-premium text-white shadow-lg' : 'text-gold-champagne hover:text-white hover:bg-white/10'}`}
@@ -357,7 +383,6 @@ function App() {
                    <Settings size={22} />
                  </button>
 
-                 {/* Logout */}
                  <button onClick={handleLogout} className="hidden sm:block text-red-300 hover:text-red-100 transition-colors p-2" title="Cerrar sesión">
                    <LogOut size={22} />
                  </button>
@@ -365,7 +390,7 @@ function App() {
             </div>
           </nav>
 
-          <main className={`min-h-[calc(100vh-4rem)] ${(view === 'job-detail' || view === 'create-job' || view === 'chat') ? 'w-full' : 'max-w-7xl mx-auto p-4'}`}>
+          <main className={`min-h-[calc(100vh-4rem)] ${(view === 'job-detail' || view === 'create-job' || view === 'chat' || view === 'admin') ? 'w-full' : 'max-w-7xl mx-auto p-4'}`}>
             <Suspense fallback={<PageLoader />}>
                 {view === 'feed' && <FeedView user={user} onViewProfile={handleViewUserProfile} />}
                 
@@ -401,6 +426,9 @@ function App() {
                 {view === 'support' && <SupportView />}
                 {view === 'chat' && <ConversationsView currentUser={user} />}
                 
+                {/* --- NUEVO: RENDERIZADO DEL PANEL ADMIN --- */}
+                {view === 'admin' && <AdminDashboard currentUser={user} />}
+                
                 {view === 'profile' && (
                     <ProfileView user={viewedProfile || user} currentUser={user} onProfileUpdate={handleProfileRefresh} />
                 )}
@@ -415,6 +443,8 @@ function App() {
             <NavButton icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
             <NavButton icon={MessageCircle} label="Chat" active={view === 'chat'} onClick={() => setView('chat')} />
             <NavButton icon={User} label="Perfil" active={view === 'profile'} onClick={handleGoToMyProfile} />
+             {/* --- NUEVO: ICONO ADMIN MÓVIL (OPCIONAL, A VECES MEJOR OCULTARLO EN MOVIL) --- */}
+            {user.is_admin && <NavButton icon={Shield} label="Admin" active={view === 'admin'} onClick={() => setView('admin')} />}
           </div>
 
           <ChatWidget currentUser={user} />
