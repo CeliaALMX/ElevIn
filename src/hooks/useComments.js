@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, validateSession } from '../lib/supabase'; // IMPORTAR
 import { useNotifications } from '../context/NotificationContext';
 
 export const useComments = (setPosts, user) => {
   const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
   const [commentsData, setCommentsData] = useState({});
   const [loadingComments, setLoadingComments] = useState(false);
-  
   const { notify } = useNotifications();
 
   const sortComments = (comments) => {
@@ -18,80 +17,63 @@ export const useComments = (setPosts, user) => {
     });
   };
 
-  // ✅ Fuente única de verdad del contador (igual idea que likes/dislikes, pero basado en total real)
   const refreshPostCommentsCount = async (postId) => {
-    const { count, error } = await supabase
-      .from('post_comments')
-      .select('id', { count: 'exact', head: true })
-      .eq('post_id', postId);
+    try {
+      const { count } = await supabase
+        .from('post_comments')
+        .select('id', { count: 'exact', head: true })
+        .eq('post_id', postId);
 
-    if (error) {
-      console.error('Error contando comentarios:', error);
-      return;
+      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comments_count: count || 0 } : p)));
+    } catch (e) {
+      // Si falla, no bloqueamos UI.
+      console.warn('refreshPostCommentsCount error:', e);
     }
-
-    const realCount = count || 0;
-    setPosts(prev =>
-      prev.map(p => (p.id === postId ? { ...p, comments_count: realCount } : p))
-    );
   };
 
   const fetchComments = async (postId) => {
     setLoadingComments(true);
+    try {
+      // Guardia suave: si expira el token en background, lo renueva.
+      await validateSession().catch(() => {});
 
-    const { data: comments, error } = await supabase
-      .from('post_comments')
-      .select(`*, profiles (full_name, avatar_initials, avatar_url)`)
-      .eq('post_id', postId);
+      const { data: comments, error } = await supabase
+        .from('post_comments')
+        .select(`*, profiles (full_name, avatar_initials, avatar_url)`)
+        .eq('post_id', postId);
 
-    if (error) {
-      console.error('Error comentarios:', error);
-      setLoadingComments(false);
-      return;
-    }
+      if (error) throw error;
+      await refreshPostCommentsCount(postId);
 
-    // IMPORTANTÍSIMO: aunque no abras comentarios, el contador del feed debe ser real.
-    // Aquí también lo actualizamos por si entra por modal o por toggle.
-    await refreshPostCommentsCount(postId);
+      const commentIds = (comments || []).map((c) => c.id);
+      let voteMap = {};
+      if (commentIds.length > 0) {
+        const { data: votes } = await supabase
+          .from('comment_votes')
+          .select('comment_id, vote_type')
+          .eq('user_id', user.id)
+          .in('comment_id', commentIds);
 
-    // Votos del usuario por comentario (para UI)
-    const commentIds = (comments || []).map(c => c.id);
-    let voteMap = {};
-
-    if (commentIds.length > 0) {
-      const { data: votes, error: votesError } = await supabase
-        .from('comment_votes')
-        .select('comment_id, vote_type')
-        .eq('user_id', user.id)
-        .in('comment_id', commentIds);
-
-      if (votesError) {
-        console.warn('No se pudieron cargar comment_votes:', votesError);
-      } else if (votes) {
-        votes.forEach(v => (voteMap[v.comment_id] = v.vote_type));
+        votes?.forEach((v) => (voteMap[v.comment_id] = v.vote_type));
       }
+
+      const processed = (comments || []).map((c) => ({
+        ...c,
+        user_vote: voteMap[c.id] || null,
+        likes_count: c.likes_count || 0,
+        dislikes_count: c.dislikes_count || 0,
+      }));
+
+      setCommentsData((prev) => ({ ...prev, [postId]: sortComments(processed) }));
+    } catch (e) {
+      console.warn('fetchComments error:', e);
+    } finally {
+      setLoadingComments(false);
     }
-
-    const processedComments = (comments || []).map(c => ({
-      ...c,
-      user_vote: voteMap[c.id] || null,
-      likes_count: c.likes_count || 0,
-      dislikes_count: c.dislikes_count || 0,
-    }));
-
-    setCommentsData(prev => ({
-      ...prev,
-      [postId]: sortComments(processedComments),
-    }));
-
-    setLoadingComments(false);
   };
 
   const toggleComments = (postId) => {
-    if (activeCommentsPostId === postId) {
-      setActiveCommentsPostId(null);
-      return;
-    }
+    if (activeCommentsPostId === postId) { setActiveCommentsPostId(null); return; }
     setActiveCommentsPostId(postId);
     fetchComments(postId);
   };
@@ -99,120 +81,74 @@ export const useComments = (setPosts, user) => {
   const addComment = async (postId, content, postOwnerId) => {
     if (!content?.trim()) return;
 
-    // ✅ Optimista como likes/dislikes
-    setPosts(prev =>
-      prev.map(p =>
-        p.id === postId ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p
-      )
-    );
+    try {
+        // --- GUARDIA DE SESIÓN ---
+        await validateSession();
+        // -------------------------
 
-    const { error } = await supabase
-      .from('post_comments')
-      .insert({ post_id: postId, user_id: user.id, content });
+        setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p));
+        
+        const { error } = await supabase.from('post_comments').insert({ post_id: postId, user_id: user.id, content });
+        if (error) throw error;
 
-    if (error) {
-      console.error('Error insert comment:', error);
-      // Revertir optimista con el conteo real
-      await refreshPostCommentsCount(postId);
-      alert('No se pudo comentar. Revisa permisos (RLS) o conexión.');
-      return;
+        if (postOwnerId) await notify({ recipientId: postOwnerId, type: 'comment', entityId: postId });
+        
+        await fetchComments(postId);
+        await refreshPostCommentsCount(postId);
+
+    } catch (error) {
+        console.error('Error adding comment:', error);
+        alert('No se pudo enviar el comentario. Intenta de nuevo.');
+        await refreshPostCommentsCount(postId); // Revertir conteo si falla
     }
-
-    // --- TRIGGER NOTIFICATION ---
-    if (postOwnerId) {
-        await notify({ recipientId: postOwnerId, type: 'comment', entityId: postId });
-    }
-    // ----------------------------
-
-    // Refrescar lista y corregir contador al total real
-    await fetchComments(postId);
-    await refreshPostCommentsCount(postId);
   };
 
   const deleteComment = async (commentId) => {
     if (!window.confirm('¿Eliminar comentario?')) return;
+    try {
+        await validateSession(); // Guardia
 
-    // Encontrar el postId dueño del comentario para actualizar contador
-    let postId = null;
-    for (const pid in commentsData) {
-      if (commentsData[pid]?.some(c => c.id === commentId)) {
-        postId = pid;
-        break;
-      }
+        let postId = Object.keys(commentsData).find(pid => commentsData[pid]?.some(c => c.id === commentId));
+        if (postId) {
+            setPosts(prev => prev.map(p => String(p.id) === String(postId) ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) } : p));
+        }
+
+        const { error } = await supabase.from('post_comments').delete().eq('id', commentId);
+        if (error) throw error;
+
+        setCommentsData(prev => {
+            const next = { ...prev };
+            for (const pid in next) next[pid] = next[pid].filter(c => c.id !== commentId);
+            return next;
+        });
+        if (postId) await refreshPostCommentsCount(postId);
+
+    } catch (e) {
+        alert("Error eliminando comentario.");
     }
-
-    // Optimista
-    if (postId) {
-      setPosts(prev =>
-        prev.map(p =>
-          String(p.id) === String(postId)
-            ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) }
-            : p
-        )
-      );
-    }
-
-    const { error } = await supabase
-      .from('post_comments')
-      .delete()
-      .eq('id', commentId);
-
-    if (error) {
-      console.error('Error delete comment:', error);
-      if (postId) await refreshPostCommentsCount(postId);
-      alert('No se pudo eliminar el comentario. Revisa permisos (RLS).');
-      return;
-    }
-
-    // Quitar del estado local
-    setCommentsData(prev => {
-      const next = { ...prev };
-      for (const pid in next) {
-        next[pid] = next[pid].filter(c => c.id !== commentId);
-      }
-      return next;
-    });
-
-    if (postId) await refreshPostCommentsCount(postId);
   };
 
   const editComment = async (commentId, content) => {
-    const { error } = await supabase
-      .from('post_comments')
-      .update({ content })
-      .eq('id', commentId);
-
-    if (error) {
-      console.error('Error edit comment:', error);
-      alert('No se pudo editar el comentario.');
-      return;
-    }
-
-    setCommentsData(prev => {
-      const next = { ...prev };
-      for (const pid in next) {
-        next[pid] = next[pid].map(c => (c.id === commentId ? { ...c, content } : c));
-      }
-      return next;
-    });
+    try {
+        await validateSession();
+        const { error } = await supabase.from('post_comments').update({ content }).eq('id', commentId);
+        if (error) throw error;
+        setCommentsData(prev => {
+            const next = { ...prev };
+            for (const pid in next) next[pid] = next[pid].map(c => (c.id === commentId ? { ...c, content } : c));
+            return next;
+        });
+    } catch (e) { alert("Error editando."); }
   };
 
-  // (tus reacciones a comentarios las dejamos tal cual por ahora; ahorita estamos enfocando feed counter)
   const voteComment = async (commentId, type) => {
     let targetPostId = null;
     let targetCommentIndex = -1;
     let oldComment = null;
-
     for (const pid in commentsData) {
       const idx = commentsData[pid].findIndex(c => c.id === commentId);
-      if (idx !== -1) {
-        targetPostId = pid;
-        targetCommentIndex = idx;
-        oldComment = commentsData[pid][idx];
-        break;
-      }
+      if (idx !== -1) { targetPostId = pid; targetCommentIndex = idx; oldComment = commentsData[pid][idx]; break; }
     }
-
     if (!oldComment) return;
 
     const previousVote = oldComment.user_vote;
@@ -220,11 +156,10 @@ export const useComments = (setPosts, user) => {
     if (previousVote === type) newVote = null;
 
     const updatedComment = { ...oldComment, user_vote: newVote };
-
-    if (previousVote === 'like') updatedComment.likes_count = Math.max(0, (updatedComment.likes_count || 0) - 1);
-    if (previousVote === 'dislike') updatedComment.dislikes_count = Math.max(0, (updatedComment.dislikes_count || 0) - 1);
-    if (newVote === 'like') updatedComment.likes_count = (updatedComment.likes_count || 0) + 1;
-    if (newVote === 'dislike') updatedComment.dislikes_count = (updatedComment.dislikes_count || 0) + 1;
+    if (previousVote === 'like') updatedComment.likes_count--;
+    if (previousVote === 'dislike') updatedComment.dislikes_count--;
+    if (newVote === 'like') updatedComment.likes_count++;
+    if (newVote === 'dislike') updatedComment.dislikes_count++;
 
     setCommentsData(prev => {
       const list = [...prev[targetPostId]];
@@ -233,38 +168,14 @@ export const useComments = (setPosts, user) => {
     });
 
     try {
-      if (newVote === null) {
-        const { error } = await supabase
-          .from('comment_votes')
-          .delete()
-          .match({ user_id: user.id, comment_id: commentId });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('comment_votes')
-          .upsert(
-            { user_id: user.id, comment_id: commentId, vote_type: newVote },
-            { onConflict: 'user_id,comment_id' }
-          );
-        if (error) throw error;
-      }
-    } catch (err) {
-      console.error('Error votando comentario:', err);
-      if (targetPostId) await fetchComments(targetPostId);
-    }
+      await validateSession().catch(() => {});
+      if (newVote === null) await supabase.from('comment_votes').delete().match({ user_id: user.id, comment_id: commentId });
+      else await supabase.from('comment_votes').upsert({ user_id: user.id, comment_id: commentId, vote_type: newVote }, { onConflict: 'user_id,comment_id' });
+    } catch (err) { console.error(err); if (targetPostId) await fetchComments(targetPostId); }
   };
 
   return {
-    activeCommentsPostId,
-    commentsData,
-    loadingComments,
-    toggleComments,
-    fetchComments,
-    commentActions: {
-      add: addComment,
-      delete: deleteComment,
-      edit: editComment,
-      vote: voteComment,
-    },
+    activeCommentsPostId, commentsData, loadingComments, toggleComments, fetchComments,
+    commentActions: { add: addComment, delete: deleteComment, edit: editComment, vote: voteComment },
   };
 };

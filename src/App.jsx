@@ -1,6 +1,7 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
-import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings, Loader2, MessageCircle, Shield } from 'lucide-react'; // --- MODIFICADO: Importé Shield
-import { supabase } from './lib/supabase';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings, Loader2, MessageCircle, Shield } from 'lucide-react'; 
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase, recoverSupabase } from './lib/supabase';
 
 // --- COMPONENTES UI ---
 import LoginScreen from './components/LoginScreen';
@@ -30,7 +31,6 @@ const JobDetailView = lazy(() => import('./components/views/JobDetailView'));
 const CreateJobView = lazy(() => import('./components/views/CreateJobView'));
 const SearchView = lazy(() => import('./components/views/SearchView'));
 const ConversationsView = lazy(() => import('./components/views/ConversationsView'));
-// --- NUEVO: VISTA DE ADMIN ---
 const AdminDashboard = lazy(() => import('./components/views/AdminDashboard'));
 
 import { JOBS_DATA } from './data/mockData';
@@ -46,6 +46,13 @@ function App() {
   const [view, setView] = useState(() => localStorage.getItem('elevin_view') || 'feed');
   const [sessionLoading, setSessionLoading] = useState(true);
   const [viewedProfile, setViewedProfile] = useState(null);
+
+  const queryClient = useQueryClient();
+  const userRef = useRef(null);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   useEffect(() => {
     localStorage.setItem('elevin_view', view);
@@ -87,11 +94,6 @@ function App() {
   useEffect(() => { localStorage.setItem('elevin_applications', JSON.stringify(appliedJobs)); }, [appliedJobs]);
   useEffect(() => { localStorage.setItem('elevin_reported', JSON.stringify(reportedJobs)); }, [reportedJobs]);
 
-  /**
-   * fetchProfile
-   * - includeAdmin=true  -> SOLO para el usuario logueado (necesita saber si es admin)
-   * - includeAdmin=false -> perfiles públicos (NO trae is_admin)
-   */
   const fetchProfile = async (userId, { includeAdmin = false } = {}) => {
     try {
       const publicSelect = 'id, full_name, role, avatar_initials, avatar_url, cover_url, bio, company, location, email, phone, certifications, projects, experience';
@@ -110,9 +112,6 @@ function App() {
             const { data: authData } = await supabase.auth.getUser();
             email = authData?.user?.email || 'No definido';
         }
-
-        // Seguridad/UI: el rol público NO debe exponer "Admin".
-        // Si por legado existe role='Admin', lo tratamos como un rol público normal (fallback).
         const publicRole = data.role === 'Admin' ? 'Técnico' : data.role;
 
         return { 
@@ -130,7 +129,6 @@ function App() {
           certifications: data.certifications || '',
           projects: data.projects || '',
           experience: Array.isArray(data.experience) ? data.experience : (data.experience ? [data.experience] : []),
-          // Bandera interna (solo para el usuario logueado)
           ...(includeAdmin ? { is_admin: !!data.is_admin } : {}),
         };
       }
@@ -143,30 +141,136 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
-    const init = async () => { 
-        const { data: { session } } = await supabase.auth.getSession(); 
-        if (session && mounted) {
-            const profile = await fetchProfile(session.user.id, { includeAdmin: true });
-            if (mounted) setUser(profile);
+
+    // --- LOGICA DE RECUPERACIÓN DE SESIÓN ---
+    const checkSession = async () => {
+      // Intentar recuperar la sesión actual y refrescar token si es necesario
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error || !session) {
+        if (mounted) setUser(null);
+      } else {
+        // Si hay sesión, cargar perfil si no lo tenemos
+        if (!userRef.current && mounted) {
+          const profile = await fetchProfile(session.user.id, { includeAdmin: true });
+          if (mounted) setUser(profile);
         }
-        if (mounted) setSessionLoading(false); 
+      }
+      if (mounted) setSessionLoading(false);
     };
-    init();
-    
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => { 
-        if (session) {
-            const profile = await fetchProfile(session.user.id, { includeAdmin: true });
-            if (mounted) setUser(profile);
-        } else { 
-            if (mounted) setUser(null); 
+
+    // 1. Chequeo inicial
+    checkSession();
+
+    // 2. Listener de cambio de estado (Login/Logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => { 
+        console.log("Auth Event:", event);
+        
+        if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+            if (mounted) {
+                setUser(null);
+                setSessionLoading(false);
+            }
+            return;
+        }
+
+        if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION')) {
+            // Solo recargamos perfil si el usuario cambió o no existe
+            const current = userRef.current;
+            if (!current || current.id !== session.user.id) {
+                const profile = await fetchProfile(session.user.id, { includeAdmin: true });
+                if (mounted) setUser(profile);
+            }
         }
         if (mounted) setSessionLoading(false);
     });
+
     return () => {
         mounted = false;
         subscription.unsubscribe();
     };
-  }, []);
+  }, []); // Dependencias vacías para que corra solo al montar
+
+  /**
+   * RECUPERACIÓN TRAS INACTIVIDAD
+   * - Revalida/renueva sesión
+   * - Reconecta realtime (notificaciones/chat)
+   * - Evita requests colgadas al "despertar" la conexión con un warm-up
+   */
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const IDLE_MS = 120_000; // ~2 minutos
+    let lastActivityAt = Date.now();
+    let recovering = false;
+    let destroyed = false;
+
+    const runRecoveryIfIdle = async (reason) => {
+      const now = Date.now();
+      const idleFor = now - lastActivityAt;
+      if (destroyed) return;
+      if (recovering) return;
+      if (idleFor < IDLE_MS) return;
+
+      recovering = true;
+      try {
+        await recoverSupabase(user.id);
+
+        // Revalidar caches activos (sin romper lógica; solo asegura datos frescos)
+        queryClient.invalidateQueries({ queryKey: ['feed'], refetchType: 'active' });
+        queryClient.invalidateQueries({ queryKey: ['user_posts'], refetchType: 'active' });
+        queryClient.invalidateQueries({ queryKey: ['follow_status'], refetchType: 'active' });
+      } catch (e) {
+        // Si la sesión ya no se puede renovar, forzamos logout limpio.
+        if (e?.code === 'NO_SESSION' || e?.code === 'SESSION_EXPIRED') {
+          console.warn('Sesión expirada tras inactividad:', e);
+          handleLogout();
+        } else {
+          console.warn(`Recovery falló (${reason}):`, e);
+        }
+      } finally {
+        recovering = false;
+        lastActivityAt = Date.now();
+      }
+    };
+
+    const markActivity = () => {
+      const now = Date.now();
+      const idleFor = now - lastActivityAt;
+
+      // Si venimos de inactividad, recuperamos ANTES de marcar actividad,
+      // para que runRecoveryIfIdle detecte correctamente el tiempo ocioso.
+      if (idleFor >= IDLE_MS) {
+        runRecoveryIfIdle('activity');
+      }
+
+      lastActivityAt = now;
+    };
+
+    const onFocus = () => runRecoveryIfIdle('focus');
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') runRecoveryIfIdle('visibility');
+    };
+    const onOnline = () => runRecoveryIfIdle('online');
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('online', onOnline);
+
+    window.addEventListener('pointerdown', markActivity, { passive: true });
+    window.addEventListener('keydown', markActivity);
+    window.addEventListener('scroll', markActivity, { passive: true });
+
+    return () => {
+      destroyed = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('pointerdown', markActivity);
+      window.removeEventListener('keydown', markActivity);
+      window.removeEventListener('scroll', markActivity);
+    };
+  }, [user?.id, queryClient]);
 
   const handleProfileRefresh = async () => { 
       if (user?.id) {
@@ -186,7 +290,11 @@ function App() {
   }, [isDarkMode]);
 
   const handleLogout = async () => { 
-    await supabase.auth.signOut(); 
+    try {
+        await supabase.auth.signOut(); 
+    } catch (e) {
+        console.error("Error signing out", e);
+    }
     setUser(null); 
     setView('feed'); 
     localStorage.removeItem('elevin_view'); 
@@ -223,7 +331,6 @@ function App() {
             alert("No se pudo cargar el perfil.");
         }
     } else {
-         // Mock fallback code ...
         const mockProfile = {
             id: 'mock-' + job.id,
             name: job.company,
@@ -271,7 +378,6 @@ function App() {
     window.scrollTo(0,0);
 
     try {
-        // IMPORTANTE: NO exponer is_admin (ni otros campos internos) en búsquedas públicas
         const { data: usersFound } = await supabase
           .from('profiles')
           .select('id, full_name, role, avatar_initials, avatar_url, company, location')
@@ -333,7 +439,6 @@ function App() {
       <ChatProvider currentUser={user}>
         <div className="min-h-screen w-full bg-ivory dark:bg-emerald-deep transition-colors duration-300">
           
-          {/* NAVBAR */}
           <nav className="sticky top-0 z-30 bg-emerald-deep text-ivory shadow-md border-b-4 border-gold-champagne">
             <div className="max-w-7xl mx-auto px-2 md:px-4 h-16 flex items-center justify-between">
               
@@ -347,7 +452,6 @@ function App() {
                  <DesktopNavLink icon={Briefcase} label="Empleos" active={view === 'jobs' || view === 'job-detail' || view === 'create-job'} onClick={() => setView('jobs')} />
                  <DesktopNavLink icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
                  <DesktopNavLink icon={LifeBuoy} label="Soporte" active={view === 'support'} onClick={() => setView('support')} />
-                 {/* --- NUEVO: ENLACE ADMIN (SOLO VISIBLE PARA ADMINS) --- */}
                  {user.is_admin && (
                     <DesktopNavLink icon={Shield} label="Admin" active={view === 'admin'} onClick={() => setView('admin')} />
                  )}
@@ -425,8 +529,6 @@ function App() {
                 {view === 'networking' && <NetworkingView />}
                 {view === 'support' && <SupportView />}
                 {view === 'chat' && <ConversationsView currentUser={user} />}
-                
-                {/* --- NUEVO: RENDERIZADO DEL PANEL ADMIN --- */}
                 {view === 'admin' && <AdminDashboard currentUser={user} />}
                 
                 {view === 'profile' && (
@@ -443,12 +545,10 @@ function App() {
             <NavButton icon={Users} label="Red" active={view === 'networking'} onClick={() => setView('networking')} />
             <NavButton icon={MessageCircle} label="Chat" active={view === 'chat'} onClick={() => setView('chat')} />
             <NavButton icon={User} label="Perfil" active={view === 'profile'} onClick={handleGoToMyProfile} />
-             {/* --- NUEVO: ICONO ADMIN MÓVIL (OPCIONAL, A VECES MEJOR OCULTARLO EN MOVIL) --- */}
             {user.is_admin && <NavButton icon={Shield} label="Admin" active={view === 'admin'} onClick={() => setView('admin')} />}
           </div>
 
           <ChatWidget currentUser={user} />
-          
           <ReportJobModal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} onSubmit={handleSubmitReport} jobTitle={jobToReport?.title} />
 
         </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, X, Minus, AlertTriangle, Loader2, Pencil, Trash2, Check, Ban } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase, validateSession } from '../../lib/supabase';
 import { useChat } from '../../hooks/useChat';
 import { useNotifications } from '../../context/NotificationContext'; // <--- Importar
 import Avatar from '../ui/Avatar';
@@ -31,23 +31,37 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
   // 1. Verificar seguimiento mutuo
   useEffect(() => {
     const checkMutualFollow = async () => {
+      if (!currentUser || !otherUser) {
+        setIsMutual(true);
+        setCheckingAuth(false);
+        return;
+      }
+
       setCheckingAuth(true);
-      if (!currentUser || !otherUser) return;
 
-      const { data: myFollow } = await supabase
-        .from('follows')
-        .select('*')
-        .match({ follower_id: currentUser.id, following_id: otherUser.id })
-        .single();
+      try {
+        await validateSession().catch(() => {});
 
-      const { data: theirFollow } = await supabase
-        .from('follows')
-        .select('*')
-        .match({ follower_id: otherUser.id, following_id: currentUser.id })
-        .single();
+        const { data: myFollow } = await supabase
+          .from('follows')
+          .select('*')
+          .match({ follower_id: currentUser.id, following_id: otherUser.id })
+          .single();
 
-      setIsMutual(!!(myFollow && theirFollow));
-      setCheckingAuth(false);
+        const { data: theirFollow } = await supabase
+          .from('follows')
+          .select('*')
+          .match({ follower_id: otherUser.id, following_id: currentUser.id })
+          .single();
+
+        setIsMutual(!!(myFollow && theirFollow));
+      } catch (e) {
+        console.warn('checkMutualFollow error:', e);
+        // Si falla, no bloqueamos: dejamos mutual=true por defecto como estaba.
+        setIsMutual(true);
+      } finally {
+        setCheckingAuth(false);
+      }
     };
     checkMutualFollow();
   }, [currentUser, otherUser]);
@@ -73,7 +87,28 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
     };
     fetchMessages();
 
-    const channel = supabase
+    let channel = null;
+    let retryTimer = null;
+
+    const teardown = () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      if (channel) {
+        try {
+          supabase.removeChannel(channel);
+        } catch (_) {
+          // noop
+        }
+        channel = null;
+      }
+    };
+
+    const subscribe = () => {
+      teardown();
+
+      channel = supabase
       .channel(`room:${conversationId}`)
       // INSERT
       .on(
@@ -129,10 +164,22 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
         setEditingId((curr) => (curr === deletedId ? null : curr));
         setConfirmDeleteId((curr) => (curr === deletedId ? null : curr));
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = setTimeout(() => {
+            // Volver a traer historial por si se perdieron eventos
+            fetchMessages();
+            subscribe();
+          }, 1000);
+        }
+      });
+    };
+
+    subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      teardown();
     };
   }, [conversationId]);
 
@@ -187,6 +234,7 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
     if (!canEditMessage(msg)) return;
 
     try {
+      await validateSession();
       const { data, error } = await supabase
         .from('messages')
         .update({ content: nextContent })
@@ -225,6 +273,7 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
     if (!msg || !canDeleteMessage(msg)) return;
 
     try {
+      await validateSession();
       const { error } = await supabase
         .from('messages')
         .delete()
@@ -265,6 +314,7 @@ const ChatWindow = ({ activeChat, currentUser, onClose, onMinimize, isWidget = f
     scrollToBottom();
 
     try {
+      await validateSession();
       let currentConvId = conversationId;
 
       // Si no existe conversación, crearla

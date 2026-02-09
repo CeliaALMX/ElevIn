@@ -1,5 +1,5 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import { supabase } from '../lib/supabase';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
+import { supabase, validateSession } from '../lib/supabase';
 
 const NotificationContext = createContext();
 
@@ -8,6 +8,8 @@ export const useNotifications = () => useContext(NotificationContext);
 export const NotificationProvider = ({ children, currentUser }) => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const channelRef = useRef(null);
+  const retryRef = useRef(null);
 
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -15,49 +17,98 @@ export const NotificationProvider = ({ children, currentUser }) => {
     // 1. Cargar notificaciones iniciales
     fetchNotifications();
 
-    // 2. Suscripción Realtime
-    const channel = supabase
-      .channel('public:notifications')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `recipient_id=eq.${currentUser.id}`,
-        },
-        async (payload) => {
-          // Fetch para obtener datos del actor (avatar, nombre)
-          const { data } = await supabase
-            .from('notifications')
-            .select('*, actor:actor_id(full_name, avatar_url, avatar_initials)')
-            .eq('id', payload.new.id)
-            .single();
+    const clearRetry = () => {
+      if (retryRef.current) {
+        clearTimeout(retryRef.current);
+        retryRef.current = null;
+      }
+    };
 
-          if (data) {
-            setNotifications((prev) => [data, ...prev]);
-            setUnreadCount((prev) => prev + 1);
-          }
+    const teardown = () => {
+      clearRetry();
+      if (channelRef.current) {
+        try {
+          supabase.removeChannel(channelRef.current);
+        } catch (_) {
+          // noop
         }
-      )
-      .subscribe();
+        channelRef.current = null;
+      }
+    };
+
+    const subscribe = () => {
+      teardown();
+
+      const channel = supabase
+        .channel('public:notifications')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `recipient_id=eq.${currentUser.id}`,
+          },
+          async (payload) => {
+            try {
+              // Verificar sesión antes de leer el detalle (evita 401 tras inactividad)
+              await validateSession().catch(() => {});
+
+              // Fetch para obtener datos del actor (avatar, nombre)
+              const { data } = await supabase
+                .from('notifications')
+                .select('*, actor:actor_id(full_name, avatar_url, avatar_initials)')
+                .eq('id', payload.new.id)
+                .single();
+
+              if (data) {
+                setNotifications((prev) => [data, ...prev]);
+                setUnreadCount((prev) => prev + 1);
+              }
+            } catch (e) {
+              console.warn('Notif realtime payload error:', e);
+            }
+          }
+        )
+        .subscribe((status) => {
+          // Si el socket se cae (muy común tras inactividad), re-suscribimos.
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            clearRetry();
+            retryRef.current = setTimeout(() => {
+              // Re-cargar para no perder eventos
+              fetchNotifications();
+              subscribe();
+            }, 1000);
+          }
+        });
+
+      channelRef.current = channel;
+    };
+
+    // 2. Suscripción Realtime (con auto-reconnect)
+    subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      teardown();
     };
   }, [currentUser?.id]);
 
   const fetchNotifications = async () => {
-    const { data } = await supabase
-      .from('notifications')
-      .select('*, actor:actor_id(full_name, avatar_url, avatar_initials)')
-      .eq('recipient_id', currentUser.id)
-      .order('created_at', { ascending: false })
-      .limit(20);
+    try {
+      await validateSession().catch(() => {});
+      const { data } = await supabase
+        .from('notifications')
+        .select('*, actor:actor_id(full_name, avatar_url, avatar_initials)')
+        .eq('recipient_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
 
-    if (data) {
-      setNotifications(data);
-      setUnreadCount(data.filter((n) => !n.read).length);
+      if (data) {
+        setNotifications(data);
+        setUnreadCount(data.filter((n) => !n.read).length);
+      }
+    } catch (e) {
+      console.warn('fetchNotifications error:', e);
     }
   };
 
@@ -68,11 +119,16 @@ export const NotificationProvider = ({ children, currentUser }) => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setUnreadCount(0);
 
-    await supabase
-      .from('notifications')
-      .update({ read: true })
-      .eq('recipient_id', currentUser.id)
-      .eq('read', false);
+    try {
+      await validateSession().catch(() => {});
+      await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('recipient_id', currentUser.id)
+        .eq('read', false);
+    } catch (e) {
+      console.warn('markAsRead error:', e);
+    }
   };
 
   // Función helper para generar notificaciones desde cualquier componente
@@ -80,6 +136,7 @@ export const NotificationProvider = ({ children, currentUser }) => {
     if (!currentUser || recipientId === currentUser.id) return; // No auto-notificarse
 
     try {
+      await validateSession().catch(() => {});
       await supabase.from('notifications').insert({
         recipient_id: recipientId,
         actor_id: currentUser.id,
