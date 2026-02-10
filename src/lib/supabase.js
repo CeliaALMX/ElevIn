@@ -74,7 +74,7 @@ const timeoutFetch = async (input, init = {}) => {
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: true,
-    autoRefreshToken: true,
+    autoRefreshToken: false, // <--- CAMBIO IMPORTANTE: Desactivado para evitar conflicto con validateSession
     detectSessionInUrl: true,
   },
   global: {
