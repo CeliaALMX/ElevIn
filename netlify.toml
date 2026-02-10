@@ -1,0 +1,35 @@
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+# 1. Regla para SPA (Single Page Application)
+# Esto es vital para que al recargar en una ruta interna (ej: /profile) no de error 404
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# 2. Caché agresivo para archivos estáticos (imágenes, js, css compilado)
+# Estos archivos tienen hash en el nombre, así que es seguro guardarlos por siempre
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# 3. SIN CACHÉ para el index.html
+# Esto obliga al navegador a preguntar siempre si hay una versión nueva de la app
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# Opcional: Asegurar que la ruta raíz también respete esto
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
