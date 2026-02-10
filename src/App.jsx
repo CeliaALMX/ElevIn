@@ -42,11 +42,21 @@ const PageLoader = () => (
 );
 
 function App() {
-  const [user, setUser] = useState(null);
+  // 1. MEJORA: Intentamos leer el usuario del almacenamiento local INMEDIATAMENTE.
+  // Esto hace que la app cargue "instantáneo" al recargar, sin esperar a Supabase.
+  const [user, setUser] = useState(() => {
+    try {
+        const saved = localStorage.getItem('elevin_profile');
+        return saved ? JSON.parse(saved) : null;
+    } catch (e) { return null; }
+  });
+
   const [view, setView] = useState(() => localStorage.getItem('elevin_view') || 'feed');
-  const [sessionLoading, setSessionLoading] = useState(true);
+  
+  // Si ya tenemos usuario en memoria, NO mostramos el loading (false). Si no, sí (true).
+  const [sessionLoading, setSessionLoading] = useState(!user);
+  
   const [viewedProfile, setViewedProfile] = useState(null);
-  // Nuevo estado para detectar si una extensión está bloqueando
   const [isBlockedByExtension, setIsBlockedByExtension] = useState(false);
 
   const queryClient = useQueryClient();
@@ -55,6 +65,12 @@ function App() {
 
   useEffect(() => {
     userRef.current = user;
+    // Cada vez que el usuario cambia, actualizamos el localStorage para mantenerlo fresco
+    if (user) {
+        localStorage.setItem('elevin_profile', JSON.stringify(user));
+    } else {
+        localStorage.removeItem('elevin_profile');
+    }
   }, [user]);
 
   useEffect(() => {
@@ -97,7 +113,6 @@ function App() {
   useEffect(() => { localStorage.setItem('elevin_applications', JSON.stringify(appliedJobs)); }, [appliedJobs]);
   useEffect(() => { localStorage.setItem('elevin_reported', JSON.stringify(reportedJobs)); }, [reportedJobs]);
 
-  // --- FUNCIÓN BLINDADA CONTRA BLOQUEOS ---
   const fetchProfile = async (userId, { includeAdmin = false } = {}) => {
     if (fetchingProfileRef.current && fetchingProfileRef.current.userId === userId) {
         return fetchingProfileRef.current.promise;
@@ -109,16 +124,14 @@ function App() {
           const publicSelect = 'id, full_name, role, avatar_initials, avatar_url, cover_url, bio, company, location, email, phone, certifications, projects, experience';
           const privateSelect = `${publicSelect}, is_admin`;
     
-          // TRUCO: Usamos Promise.race para detectar si la petición se cuelga (bloqueo de extensión)
           const dbRequest = supabase
             .from('profiles')
             .select(includeAdmin ? privateSelect : publicSelect)
             .eq('id', userId)
             .single();
 
-          // Si en 5 segundos no responde, asumimos bloqueo
           const timeoutCheck = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('EXTENSION_BLOCK')), 5000)
+            setTimeout(() => reject(new Error('EXTENSION_BLOCK')), 6000)
           );
 
           const { data, error } = await Promise.race([dbRequest, timeoutCheck]);
@@ -126,7 +139,7 @@ function App() {
           if (error) throw error;
     
           console.log("[DEBUG] Perfil descargado correctamente");
-          setIsBlockedByExtension(false); // Si tiene éxito, limpiamos alerta
+          setIsBlockedByExtension(false);
 
           if (data) {
             let email = data.email;
@@ -159,7 +172,9 @@ function App() {
             console.error("Error fetching profile:", error);
             if (error.message === 'EXTENSION_BLOCK') {
                 setIsBlockedByExtension(true);
-                setSessionLoading(false); // Quitamos el loading infinito para mostrar el error
+                // IMPORTANTE: Si estamos bloqueados pero tenemos usuario en caché, NO bloqueamos la app.
+                // Solo quitamos el loading para que el usuario pueda usar la app con datos cacheados.
+                setSessionLoading(false); 
             }
             return null; 
         } finally {
@@ -173,24 +188,29 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
-    console.log("[DEBUG] Inicio de useEffect principal de sesión");
+    console.log("[DEBUG] Inicio de validación de sesión");
 
     const checkSession = async () => {
-      console.log("[DEBUG] checkSession ejecutándose...");
-      
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error || !session) {
-          if (mounted) setUser(null);
+          // Si no hay sesión válida, borramos el usuario (incluso si estaba en caché)
+          if (mounted) {
+              setUser(null);
+              localStorage.removeItem('elevin_profile');
+          }
         } else {
-          if (!userRef.current && mounted) {
-            const profile = await fetchProfile(session.user.id, { includeAdmin: true });
-            if (mounted && profile) setUser(profile);
+          // Si hay sesión válida, verificamos si necesitamos actualizar datos
+          // Si ya tenemos usuario cargado del caché, esto corre en "segundo plano" (background update)
+          if (mounted) {
+             const profile = await fetchProfile(session.user.id, { includeAdmin: true });
+             // Solo actualizamos si obtuvimos datos frescos, si falló (por bloqueo), nos quedamos con el caché
+             if (profile) setUser(profile);
           }
         }
       } catch (err) {
-        console.error("[DEBUG] Excepción crítica en checkSession:", err);
+        console.error("[DEBUG] Error verificando sesión:", err);
       } finally {
         if (mounted) setSessionLoading(false);
       }
@@ -203,18 +223,18 @@ function App() {
             if (mounted) {
                 setUser(null);
                 setSessionLoading(false);
+                localStorage.removeItem('elevin_profile');
             }
             return;
         }
 
-        if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION')) {
-            const current = userRef.current;
-            if (!current || current.id !== session.user.id) {
+        if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+             // Solo llamamos si los IDs no coinciden o queremos forzar refresh
+             if (userRef.current?.id !== session.user.id) {
                 const profile = await fetchProfile(session.user.id, { includeAdmin: true });
                 if (mounted && profile) setUser(profile);
-            }
+             }
         }
-        if (mounted) setSessionLoading(false);
     });
 
     return () => {
@@ -223,8 +243,7 @@ function App() {
     };
   }, []);
 
-  // ... (Efecto de inactividad se mantiene igual, omitido por brevedad pero inclúyelo si copias todo) ...
-  // Para asegurar que copias todo bien, aquí está el bloque de inactividad completo:
+  // --- Recuperación por inactividad ---
   useEffect(() => {
     if (!user?.id) return;
     const IDLE_MS = 120_000;
@@ -244,7 +263,6 @@ function App() {
     window.addEventListener('keydown', markActivity);
     return () => { destroyed = true; window.removeEventListener('pointerdown', markActivity); window.removeEventListener('keydown', markActivity); };
   }, [user?.id]);
-  // ... Fin bloque inactividad ...
 
   const handleProfileRefresh = async () => { if (user?.id) { const updated = await fetchProfile(user.id, { includeAdmin: true }); setUser(updated); } };
 
@@ -255,10 +273,12 @@ function App() {
 
   const handleLogout = async () => { 
     try { await supabase.auth.signOut(); } catch (e) {}
-    setUser(null); setView('feed'); localStorage.removeItem('elevin_view'); 
+    setUser(null); 
+    setView('feed'); 
+    localStorage.removeItem('elevin_view'); 
+    localStorage.removeItem('elevin_profile'); // Limpiamos perfil al salir
   };
   
-  // ... Resto de manejadores (handleGoToCreateJob, etc) ...
   const handleGoToCreateJob = () => { setView('create-job'); window.scrollTo(0,0); };
   const handleCreateJob = (newJobData) => { setJobs(prev => [{id: Date.now(), ...newJobData, user_id: user.id, companyAvatar: user.avatar_url, companyInitials: user.avatar, postedAt: new Date(), postedAtRelative: 'Hace un momento'}, ...prev]); alert('¡Publicado!'); setView('jobs'); window.scrollTo(0,0); };
   const handleViewJobDetail = (job) => { setSelectedJob(job); setView('job-detail'); window.scrollTo(0,0); };
@@ -285,23 +305,14 @@ function App() {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-slate-900 gap-6 px-4 text-center">
             {isBlockedByExtension ? (
-                // SI SE DETECTA BLOQUEO, MOSTRAMOS ESTO EN LUGAR DEL SPINNER INFINITO
                 <div className="max-w-md bg-white dark:bg-slate-800 p-6 rounded-xl shadow-2xl border-2 border-red-200 dark:border-red-900">
                     <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                     <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Conexión Bloqueada</h2>
                     <p className="text-gray-600 dark:text-gray-300 mb-4 text-sm">
-                        Parece que una extensión (como <b>McAfee</b> o <b>AdBlock</b>) está impidiendo que la aplicación se conecte a la base de datos.
+                        Parece que una extensión está impidiendo que la aplicación se conecte.
                     </p>
-                    <div className="bg-blue-50 dark:bg-slate-700 p-3 rounded text-left text-xs mb-4">
-                        <p className="font-bold mb-1">Soluciones rápidas:</p>
-                        <ul className="list-disc pl-4 space-y-1 text-gray-700 dark:text-gray-200">
-                            <li>Desactiva temporalmente tus extensiones.</li>
-                            <li>Abre esta página en <b>Modo Incógnito</b>.</li>
-                            <li>Usa otro navegador (Firefox, Edge).</li>
-                        </ul>
-                    </div>
                     <button onClick={() => window.location.reload()} className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition-colors">
-                        Reintentar conexión
+                        Reintentar
                     </button>
                 </div>
             ) : (
@@ -319,8 +330,6 @@ function App() {
   return (
     <NotificationProvider currentUser={user}>
       <ChatProvider currentUser={user}>
-        {/* ... (Todo el JSX del return principal sigue EXACTAMENTE IGUAL) ... */}
-        {/* Copia el return completo del archivo anterior aquí abajo */}
         <div className="min-h-screen w-full bg-ivory dark:bg-emerald-deep transition-colors duration-300">
           <nav className="sticky top-0 z-30 bg-emerald-deep text-ivory shadow-md border-b-4 border-gold-champagne">
             <div className="max-w-7xl mx-auto px-2 md:px-4 h-16 flex items-center justify-between">
