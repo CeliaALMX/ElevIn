@@ -28,9 +28,16 @@ const FeedView = ({ user, onViewProfile }) => {
     // Validamos sesión antes de leer (opcional pero recomendado para consistencia)
     await validateSession().catch(() => {}); 
     
+    // --- CAMBIO PRINCIPAL AQUÍ ---
+    // Pedimos el conteo de comentarios directamente en la consulta principal
+    // usando la relación "post_comments(count)"
     let postsQuery = supabase
       .from('posts')
-      .select(`*, profiles (full_name, role, avatar_initials, avatar_url, company)`);
+      .select(`
+        *, 
+        profiles (full_name, role, avatar_initials, avatar_url, company),
+        post_comments(count)
+      `);
 
     if (user.role !== 'Empresa') {
       const { data: followingData } = await supabase.from('follows').select('following_id').eq('follower_id', user.id);
@@ -44,18 +51,16 @@ const FeedView = ({ user, onViewProfile }) => {
     const { data: userVotes } = await supabase.from('post_votes').select('post_id, vote_type').eq('user_id', user.id);
     const voteMap = {}; userVotes?.forEach(v => (voteMap[v.post_id] = v.vote_type));
 
-    const ids = (postsData || []).map(p => p.id);
-    const counts = await Promise.all(ids.map(async (id) => {
-        const { count } = await supabase.from('post_comments').select('id', { count: 'exact', head: true }).eq('post_id', id);
-        return count || 0;
-    }));
-    const countMap = {}; ids.forEach((id, idx) => (countMap[id] = counts[idx] || 0));
+    // --- SECCIÓN ELIMINADA: Promise.all (N+1 Query) ---
+    // Ya no hacemos 20 peticiones extra para contar comentarios.
 
     let finalPosts = (postsData || []).map(p => ({
       ...p,
       likes_count: p.likes_count || 0,
       dislikes_count: p.dislikes_count || 0,
-      comments_count: countMap[p.id] ?? 0,
+      // Extraemos el conteo del array que devuelve Supabase
+      // Si post_comments es null o vacío, ponemos 0
+      comments_count: p.post_comments?.[0]?.count || 0, 
       user_vote: voteMap[p.id] || null,
     }));
 
