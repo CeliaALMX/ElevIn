@@ -9,6 +9,9 @@ import Avatar from './components/ui/Avatar';
 import { DesktopNavLink, NavButton } from './components/ui/NavComponents';
 import ReportJobModal from './components/modals/ReportJobModal';
 
+// --- NUEVAS VISTAS DE ESTADO ---
+import { CheckEmailView, VerifiedView } from './components/views/AuthStatusViews';
+
 // --- CHAT CONTEXT & WIDGET ---
 import { ChatProvider } from './context/ChatContext';
 import ChatWidget from './components/chat/ChatWidget';
@@ -42,8 +45,6 @@ const PageLoader = () => (
 );
 
 function App() {
-  // 1. MEJORA: Intentamos leer el usuario del almacenamiento local INMEDIATAMENTE.
-  // Esto hace que la app cargue "instantáneo" al recargar, sin esperar a Supabase.
   const [user, setUser] = useState(() => {
     try {
         const saved = localStorage.getItem('elevin_profile');
@@ -52,12 +53,12 @@ function App() {
   });
 
   const [view, setView] = useState(() => localStorage.getItem('elevin_view') || 'feed');
-  
-  // Si ya tenemos usuario en memoria, NO mostramos el loading (false). Si no, sí (true).
   const [sessionLoading, setSessionLoading] = useState(!user);
-  
   const [viewedProfile, setViewedProfile] = useState(null);
   const [isBlockedByExtension, setIsBlockedByExtension] = useState(false);
+
+  // NUEVO ESTADO: Para controlar el flujo de autenticación (check-email, verified, etc.)
+  const [authStatusView, setAuthStatusView] = useState(null); 
 
   const queryClient = useQueryClient();
   const userRef = useRef(null);
@@ -65,7 +66,6 @@ function App() {
 
   useEffect(() => {
     userRef.current = user;
-    // Cada vez que el usuario cambia, actualizamos el localStorage para mantenerlo fresco
     if (user) {
         localStorage.setItem('elevin_profile', JSON.stringify(user));
     } else {
@@ -74,7 +74,9 @@ function App() {
   }, [user]);
 
   useEffect(() => {
-    localStorage.setItem('elevin_view', view);
+    if (view !== 'check-email' && view !== 'verified') {
+        localStorage.setItem('elevin_view', view);
+    }
   }, [view]);
 
   // --- ESTADOS DE DATOS ---
@@ -120,7 +122,6 @@ function App() {
 
     const fetchPromise = (async () => {
         try {
-          console.log(`[DEBUG] fetchProfile INICIANDO REAL para ID: ${userId}`);
           const publicSelect = 'id, full_name, role, avatar_initials, avatar_url, cover_url, bio, company, location, email, phone, certifications, projects, experience';
           const privateSelect = `${publicSelect}, is_admin`;
     
@@ -138,7 +139,6 @@ function App() {
           
           if (error) throw error;
     
-          console.log("[DEBUG] Perfil descargado correctamente");
           setIsBlockedByExtension(false);
 
           if (data) {
@@ -172,8 +172,6 @@ function App() {
             console.error("Error fetching profile:", error);
             if (error.message === 'EXTENSION_BLOCK') {
                 setIsBlockedByExtension(true);
-                // IMPORTANTE: Si estamos bloqueados pero tenemos usuario en caché, NO bloqueamos la app.
-                // Solo quitamos el loading para que el usuario pueda usar la app con datos cacheados.
                 setSessionLoading(false); 
             }
             return null; 
@@ -188,29 +186,34 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
-    console.log("[DEBUG] Inicio de validación de sesión");
+
+    // --- DETECCIÓN DE HASH PARA VERIFICACIÓN ---
+    // Si la URL contiene indicadores de confirmación de Supabase, mostramos la vista de éxito
+    const hash = window.location.hash;
+    if (hash && (hash.includes('type=signup') || hash.includes('type=recovery') || hash.includes('type=magiclink'))) {
+       console.log("Detectado retorno de confirmación de correo.");
+       setAuthStatusView('verified');
+       // Limpiamos el hash para que no se quede sucio, pero con cuidado de no romper el flujo de supabase
+       // Supabase consumirá el hash automáticamente.
+    }
 
     const checkSession = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error || !session) {
-          // Si no hay sesión válida, borramos el usuario (incluso si estaba en caché)
           if (mounted) {
               setUser(null);
               localStorage.removeItem('elevin_profile');
           }
         } else {
-          // Si hay sesión válida, verificamos si necesitamos actualizar datos
-          // Si ya tenemos usuario cargado del caché, esto corre en "segundo plano" (background update)
           if (mounted) {
              const profile = await fetchProfile(session.user.id, { includeAdmin: true });
-             // Solo actualizamos si obtuvimos datos frescos, si falló (por bloqueo), nos quedamos con el caché
              if (profile) setUser(profile);
           }
         }
       } catch (err) {
-        console.error("[DEBUG] Error verificando sesión:", err);
+        console.error("Error verificando sesión:", err);
       } finally {
         if (mounted) setSessionLoading(false);
       }
@@ -229,7 +232,6 @@ function App() {
         }
 
         if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
-             // Solo llamamos si los IDs no coinciden o queremos forzar refresh
              if (userRef.current?.id !== session.user.id) {
                 const profile = await fetchProfile(session.user.id, { includeAdmin: true });
                 if (mounted && profile) setUser(profile);
@@ -275,8 +277,9 @@ function App() {
     try { await supabase.auth.signOut(); } catch (e) {}
     setUser(null); 
     setView('feed'); 
+    setAuthStatusView(null); // Resetear vistas auth
     localStorage.removeItem('elevin_view'); 
-    localStorage.removeItem('elevin_profile'); // Limpiamos perfil al salir
+    localStorage.removeItem('elevin_profile');
   };
   
   const handleGoToCreateJob = () => { setView('create-job'); window.scrollTo(0,0); };
@@ -299,8 +302,9 @@ function App() {
   const handleSubmitReport = () => { if (jobToReport) { setReportedJobs(prev => [...prev, jobToReport.id]); alert("Reportado"); setIsReportModalOpen(false); setJobToReport(null); if (view==='job-detail') setView('jobs'); } };
   const visibleJobs = jobs.filter(job => !reportedJobs.includes(job.id));
 
+  // --- LÓGICA DE RENDERIZADO PRINCIPAL ---
 
-  // --- PANTALLA DE CARGA / BLOQUEO ---
+  // 1. Pantalla de Carga
   if (sessionLoading) {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-slate-900 gap-6 px-4 text-center">
@@ -325,8 +329,21 @@ function App() {
       );
   }
 
-  if (!user) return <LoginScreen />;
+  // 2. Vistas de Autenticación Especiales (Prioritarias sobre el Login)
+  if (!user && authStatusView === 'check-email') {
+      return <CheckEmailView onBackToLogin={() => setAuthStatusView(null)} />;
+  }
+  
+  if (authStatusView === 'verified') {
+      return <VerifiedView onContinue={() => { setAuthStatusView(null); if(user) setView('feed'); }} />;
+  }
 
+  // 3. Login Screen (Si no hay usuario y no estamos en una vista especial)
+  if (!user) {
+      return <LoginScreen onRegisterSuccess={() => setAuthStatusView('check-email')} />;
+  }
+
+  // 4. App Principal (Usuario logueado)
   return (
     <NotificationProvider currentUser={user}>
       <ChatProvider currentUser={user}>

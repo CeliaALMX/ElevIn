@@ -8,7 +8,10 @@ import wallpaper from '../assets/wallpaper-Celia2.jpg';
 // Dominios bloqueados para empresas
 const PUBLIC_DOMAINS = ['gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 'live.com', 'icloud.com'];
 
-const LoginScreen = () => {
+// URL de producción para el redireccionamiento (EVITA LOCALHOST)
+const PRODUCTION_URL = 'https://ascenlin.vercel.app'; // <--- URL DE LA APLICACIÓN
+
+const LoginScreen = ({ onRegisterSuccess }) => { 
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -75,17 +78,31 @@ const LoginScreen = () => {
                 address: formData.address,
                 website: formData.website
             }),
-            // NOTA: Ya no pedimos datos laborales aquí para profesionales
         };
+
+        // DETERMINAR URL DE REDIRECCIÓN
+        // Usamos la URL de producción si está definida, sino fallback al origen (pero origen en localhost es localhost)
+        const redirectUrl = window.location.hostname === 'localhost' 
+            ? PRODUCTION_URL 
+            : window.location.origin;
 
         const { error } = await supabase.auth.signUp({
           email: formData.email,
           password: formData.password,
-          options: { data: metaData, emailRedirectTo: window.location.origin }
+          options: { 
+              data: metaData, 
+              emailRedirectTo: redirectUrl // <--- USO DE URL CORREGIDA
+          }
         });
 
         if (error) throw error;
-        alert('Registro exitoso. Revisa tu correo.');
+        
+        // EN LUGAR DE ALERT, LLAMAMOS AL CALLBACK
+        if (onRegisterSuccess) {
+            onRegisterSuccess();
+        } else {
+            alert('Registro exitoso. Revisa tu correo.');
+        }
       }
     } catch (error) {
       alert(error.message);
@@ -143,7 +160,6 @@ const LoginScreen = () => {
         className="w-full lg:w-1/2 h-screen overflow-y-auto flex items-center justify-center p-6 bg-cover bg-center bg-no-repeat relative"
         style={{ backgroundImage: `url(${wallpaper})` }}
       >
-        {/* Capa opcional de superposición oscura para mejorar contraste si la imagen es muy clara (puedes ajustar opacity-10 a lo que gustes o quitarlo) */}
         <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
 
         <div className="w-full max-w-md bg-white dark:bg-emerald-medium p-8 rounded-2xl shadow-xl border border-softgray dark:border-emerald-dark my-8 relative z-10">
@@ -157,7 +173,6 @@ const LoginScreen = () => {
             
             {!isLogin && (
               <div className="space-y-4">
-                  {/* SELECTOR DE ROL */}
                   <div className="flex p-1 bg-gray-100 dark:bg-slate-700 rounded-lg">
                       <button type="button" onClick={() => setIsCompany(false)}
                           className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all duration-200 text-gold-premium ${!isCompany ? 'bg-white text-blue-600 shadow-sm dark:bg-slate-600 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>
