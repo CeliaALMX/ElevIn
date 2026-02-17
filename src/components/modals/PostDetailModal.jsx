@@ -55,25 +55,27 @@ const PostDetailModal = ({ post, onClose, user, commentsData, commentActions, fe
   return (
     <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-0 md:p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
       
+      {/* Botón de cerrar flotante mejor posicionado */}
       <button 
         onClick={onClose}
-        className="absolute top-4 right-4 p-2 bg-gray-800/50 text-white rounded-full hover:bg-red-600 transition-colors z-[60]"
+        className="absolute top-2 right-2 md:top-4 md:right-4 p-2 bg-black/50 text-white rounded-full hover:bg-red-600 transition-colors z-[70] backdrop-blur-md"
       >
         <X size={24} />
       </button>
 
       <div 
-        className="relative w-full max-w-6xl h-full md:h-[85vh] bg-white dark:bg-slate-900 rounded-none md:rounded-xl overflow-hidden flex flex-col md:grid md:grid-cols-[1fr_350px] shadow-2xl" 
+        className="relative w-full max-w-7xl bg-white dark:bg-slate-900 md:rounded-xl overflow-hidden shadow-2xl flex flex-col md:flex-row h-[100dvh] md:h-[90vh] max-h-screen" 
         onClick={e => e.stopPropagation()}
       >
         
         {/* LADO IZQUIERDO: MEDIA (CARRUSEL) */}
-        <div className="flex items-center justify-center bg-black h-[40vh] md:h-full relative group">
+        {/* En móvil ocupa 35-40% de la altura, en desktop ocupa el resto del ancho disponible */}
+        <div className="relative bg-black h-[35vh] md:h-full md:flex-1 flex items-center justify-center overflow-hidden shrink-0 group">
            {currentMedia ? (
              currentMedia.type === 'video' ? (
-               <video src={currentMedia.url} controls autoPlay className="max-h-full max-w-full outline-none" />
+               <video src={currentMedia.url} controls autoPlay className="w-full h-full object-contain" />
              ) : (
-               <img src={currentMedia.url} alt="Post detail" className="max-h-full max-w-full object-contain" />
+               <img src={currentMedia.url} alt="Post detail" className="w-full h-full object-contain" />
              )
            ) : (
              <div className="text-gray-500">Contenido no disponible</div>
@@ -81,13 +83,13 @@ const PostDetailModal = ({ post, onClose, user, commentsData, commentActions, fe
 
            {mediaList.length > 1 && (
              <>
-               <button onClick={handlePrev} className="absolute left-4 p-2 bg-black/50 text-white rounded-full hover:bg-white/20 transition-colors z-10">
+               <button onClick={handlePrev} className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 p-2 bg-black/50 text-white rounded-full hover:bg-white/20 transition-colors z-10">
                  <ChevronLeft size={24} />
                </button>
-               <button onClick={handleNext} className="absolute right-4 p-2 bg-black/50 text-white rounded-full hover:bg-white/20 transition-colors z-10">
+               <button onClick={handleNext} className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 p-2 bg-black/50 text-white rounded-full hover:bg-white/20 transition-colors z-10">
                  <ChevronRight size={24} />
                </button>
-               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 px-3 py-1 rounded-full text-xs text-white">
+               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 px-3 py-1 rounded-full text-xs text-white backdrop-blur-sm">
                  {currentMediaIndex + 1} / {mediaList.length}
                </div>
              </>
@@ -95,9 +97,11 @@ const PostDetailModal = ({ post, onClose, user, commentsData, commentActions, fe
         </div>
 
         {/* LADO DERECHO: INFO Y COMENTARIOS */}
-        <div className="flex flex-col h-full border-l dark:border-slate-700 relative">
+        {/* En móvil ocupa el resto de la altura, en desktop tiene un ancho fijo de 400px (o 350px) */}
+        <div className="flex flex-col h-full w-full md:w-[400px] border-l dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
           
-          <div className="p-4 border-b dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0">
+          {/* HEADER DEL POST (Autor y Contenido) */}
+          <div className="p-4 border-b dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0 z-10">
              <div className="flex items-center gap-2">
                 <Avatar initials={post.profiles?.avatar_initials} src={post.profiles?.avatar_url} size="sm"/>
                 <div>
@@ -106,13 +110,15 @@ const PostDetailModal = ({ post, onClose, user, commentsData, commentActions, fe
                 </div>
              </div>
              {post.content && (
-               <div className="mt-2 text-xs text-gray-700 dark:text-gray-300 max-h-20 overflow-y-auto whitespace-pre-wrap">
+               <div className="mt-2 text-sm text-gray-700 dark:text-gray-300 max-h-24 overflow-y-auto whitespace-pre-wrap scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
                  {post.content}
                </div>
              )}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-slate-800/50" ref={scrollRef}>
+          {/* LISTA DE COMENTARIOS (Área flexible) */}
+          {/* min-h-0 es CRUCIAL para que el flex container anidado haga scroll correctamente */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-slate-800/50 min-h-0" ref={scrollRef}>
              {commentsData[post.id]?.length > 0 ? (
                 commentsData[post.id].map(comment => (
                   <CommentItem 
@@ -132,7 +138,8 @@ const PostDetailModal = ({ post, onClose, user, commentsData, commentActions, fe
              )}
           </div>
 
-          <div className="p-3 bg-white dark:bg-slate-900 border-t dark:border-slate-700 shrink-0">
+          {/* INPUT AREA (Siempre visible abajo) */}
+          <div className="p-3 bg-white dark:bg-slate-900 border-t dark:border-slate-700 shrink-0 z-20 pb-safe">
              <div className="flex gap-2 items-center">
                 <Avatar initials={user.avatar} src={user.avatar_url} size="sm" className="hidden sm:block" />
                 <div className="flex-1 relative">
@@ -142,15 +149,15 @@ const PostDetailModal = ({ post, onClose, user, commentsData, commentActions, fe
                     onChange={(e) => setNewComment(e.target.value)}
                     placeholder="Escribe un comentario..."
                     disabled={isSending}
-                    className="w-full text-sm py-2 pl-3 pr-10 rounded-full bg-gray-100 dark:bg-slate-800 border-none focus:ring-1 focus:ring-blue-500 dark:text-white"
+                    className="w-full text-sm py-2.5 pl-3 pr-10 rounded-full bg-gray-100 dark:bg-slate-800 border-none focus:ring-1 focus:ring-blue-500 dark:text-white"
                     onKeyDown={(e) => e.key === 'Enter' && !isSending && handleSend()}
                   />
                   <button 
                     onClick={handleSend}
                     disabled={!newComment.trim() || isSending}
-                    className="absolute right-1 top-1 p-1.5 text-blue-600 hover:bg-blue-100 rounded-full disabled:opacity-50"
+                    className="absolute right-1 top-1 p-1.5 text-blue-600 hover:bg-blue-100 rounded-full disabled:opacity-50 transition-colors"
                   >
-                    {isSending ? <Loader2 size={16} className="animate-spin"/> : <Send size={16} />}
+                    {isSending ? <Loader2 size={18} className="animate-spin"/> : <Send size={18} />}
                   </button>
                 </div>
              </div>
