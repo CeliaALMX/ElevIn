@@ -39,7 +39,7 @@ const SupportView = () => {
                <Search size={18} className="text-gold-premium" />
                <input 
                  placeholder="Buscar código de error..." 
-                 className="bg-transparent border-none p-2 w-full outline-none text-white text-sm placeholder-gold-premium"
+                 className="bg-transparent border-none p-2 w-full outline-none text-gold-champagne text-sm placeholder-gold-premium"
                />
              </div>
              <Button className="whitespace-nowrap">Preguntar</Button>

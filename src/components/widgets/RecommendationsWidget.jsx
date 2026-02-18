@@ -63,9 +63,6 @@ const RecommendationsWidget = ({ user, limit = 3, compact = false, onMessage }) 
         }
 
         // 3) Calcular "Conexiones en común"
-        // Lógica: coincidencias en follows donde:
-        // - follower_id es alguien que YO sigo (myFollowingIds)
-        // - following_id es uno de los candidatos
         let mutualCounts = {};
 
         if (myFollowingIds.length > 0) {
