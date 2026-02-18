@@ -1,41 +1,67 @@
-import React from 'react';
-import { UserPlus, MapPin, Award } from 'lucide-react';
-import Avatar from '../ui/Avatar';
-import Button from '../ui/Button';
-import Card from '../ui/Card'; // Asumimos componente Card compartido
+import React, { useMemo } from 'react';
+import RecommendationsWidget from '../widgets/RecommendationsWidget';
+import { Users, Loader2 } from 'lucide-react';
 
-const MOCK_USERS = [
-  { id: 1, name: 'Roberto Díaz', role: 'Especialista Hidráulico', company: 'Independiente', location: 'CDMX', initials: 'RD' },
-  { id: 2, name: 'Laura M.', role: 'Gerente de Mantenimiento', company: 'Kone', location: 'Monterrey', initials: 'LM' },
-  { id: 3, name: 'Ing. Felipe', role: 'Inspector Certificado', company: 'TÜV', location: 'Guadalajara', initials: 'IF' },
-];
+const NetworkingView = ({ user, onNavigate }) => {
+  const currentUser = useMemo(() => {
+    if (user?.id) return user;
+    try {
+      const saved = localStorage.getItem('elevin_profile');
+      const parsed = saved ? JSON.parse(saved) : null;
+      return parsed?.id ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }, [user]);
 
-const NetworkingView = () => {
+  const handleMessage = (targetUser) => {
+    if (onNavigate) {
+      // En App.jsx, la vista de chat es 'chat'
+      onNavigate('chat');
+      console.log('Navegar al chat con:', targetUser);
+    }
+  };
+
+  // Si el usuario no ha cargado, mostramos loader centrado y salimos.
+  if (!currentUser) {
+    return (
+      <div className="flex items-center justify-center h-64 w-full">
+        <Loader2 className="animate-spin text-emerald-600" size={32} />
+      </div>
+    );
+  }
+
   return (
-    <div className="pb-24 pt-4 max-w-2xl mx-auto space-y-4 px-4">
-      <div className="bg-gradient-to-r from-emerald-dark to-emerald-medium p-6 rounded-xl text-white shadow-lg">
-        <h2 className="text-xl font-bold">Tu Red Profesional</h2>
-        <p className="text-sm text-blue-100 opacity-90">Conecta con 1,240 colegas del sector.</p>
+    <div className="pb-24 pt-4 max-w-2xl mx-auto space-y-6 px-4">
+      {/* Header Visual */}
+      <div className="bg-gradient-to-r from-emerald-dark to-emerald-medium p-6 rounded-xl text-white shadow-lg relative overflow-hidden">
+        <div className="relative z-10">
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <Users className="text-gold-champagne" />
+            Tu Red Profesional
+          </h2>
+          <p className="text-sm text-blue-100 opacity-90 mt-1">
+            Amplía tus oportunidades conectando con colegas del sector de elevadores.
+          </p>
+        </div>
+        {/* Decoración de fondo */}
+        <div className="absolute top-0 right-0 p-4 opacity-10">
+          <Users size={120} />
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3">
-        {MOCK_USERS.map((u) => (
-          <Card key={u.id} className="flex items-center gap-4 p-4">
-            <Avatar initials={u.initials} size="md" />
-            <div className="flex-1 min-w-0">
-              <h4 className="font-bold text-gray-900 dark:text-white truncate">{u.name}</h4>
-              <p className="text-xs text-gold-premium dark:gold-champagne font-medium truncate">{u.role}</p>
-              <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                 <span className="flex items-center gap-0.5"><MapPin size={10}/> {u.location}</span>
-                 <span>•</span>
-                 <span>{u.company}</span>
-              </div>
-            </div>
-            <button className="p-2 bg-blue-50 text-gold-premium rounded-full hover:bg-blue-100 dark:bg-slate-700 dark:text-blue-300 transition-colors">
-              <UserPlus size={20} />
-            </button>
-          </Card>
-        ))}
+      {/* Lista de Sugerencias */}
+      <div>
+        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 pl-3 border-l-4 border-emerald-500">
+          Sugerencias para ti
+        </h3>
+
+        <RecommendationsWidget
+          user={currentUser}
+          limit={20}
+          compact={false}
+          onMessage={handleMessage}
+        />
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Image, Briefcase, MapPin, X } from 'lucide-react';
+// CORRECCIÓN 1: Se agregó 'UserPlus' a la lista de iconos importados
+import { Loader2, Image, Briefcase, MapPin, X, UserPlus } from 'lucide-react';
 import { supabase, validateSession } from '../../lib/supabase';
 import { useComments } from '../../hooks/useComments';
 import { uploadFileToSupabase } from '../../helpers/fileUpload';
@@ -9,6 +10,8 @@ import Avatar from '../ui/Avatar';
 import Button from '../ui/Button';
 import PostItem from '../feed/PostItem';
 import PostDetailModal from '../modals/PostDetailModal';
+// CORRECCIÓN 2: Se importó el widget de recomendaciones
+import RecommendationsWidget from '../widgets/RecommendationsWidget';
 import { JOBS_DATA } from '../../data/mockData';
 import { useNotifications } from '../../context/NotificationContext';
 
@@ -28,7 +31,7 @@ const FeedView = ({ user, onViewProfile }) => {
   const fetchFeedData = async () => {
     await validateSession().catch(() => {}); 
     
-    // 1. Traemos SOLO los posts y perfiles (sin el conteo que falla)
+    // 1. Traemos SOLO los posts y perfiles
     let postsQuery = supabase
       .from('posts')
       .select(`
@@ -49,14 +52,12 @@ const FeedView = ({ user, onViewProfile }) => {
 
     const postIds = postsData.map(p => p.id);
 
-    // 2. OPTIMIZACIÓN: Traemos TODOS los comentarios de estos posts en UNA sola petición
-    // y los contamos en Javascript. Esto es mucho más rápido que N+1 peticiones y más seguro que el join.
+    // 2. OPTIMIZACIÓN: Traemos TODOS los comentarios
     const { data: allComments } = await supabase
       .from('post_comments')
       .select('post_id')
       .in('post_id', postIds);
 
-    // Creamos un mapa de conteos: { 'post_1': 5, 'post_2': 0, ... }
     const countMap = {};
     allComments?.forEach(c => {
         countMap[c.post_id] = (countMap[c.post_id] || 0) + 1;
@@ -67,7 +68,7 @@ const FeedView = ({ user, onViewProfile }) => {
       .from('post_votes')
       .select('post_id, vote_type')
       .eq('user_id', user.id)
-      .in('post_id', postIds); // Optimizacion: solo votos de estos posts
+      .in('post_id', postIds);
       
     const voteMap = {}; 
     userVotes?.forEach(v => (voteMap[v.post_id] = v.vote_type));
@@ -77,7 +78,7 @@ const FeedView = ({ user, onViewProfile }) => {
       ...p,
       likes_count: p.likes_count || 0,
       dislikes_count: p.dislikes_count || 0,
-      comments_count: countMap[p.id] || 0, // Usamos el mapa calculado
+      comments_count: countMap[p.id] || 0,
       user_vote: voteMap[p.id] || null,
     }));
 
@@ -95,7 +96,7 @@ const FeedView = ({ user, onViewProfile }) => {
     queryKey: ['feed', feedType, user.id],
     queryFn: fetchFeedData,
     staleTime: 1000 * 60 * 2,
-    retry: 1, // Importante: Evita el ciclo infinito si falla la red
+    retry: 1,
   });
 
   const setPosts = (updater) => {
@@ -173,7 +174,6 @@ const FeedView = ({ user, onViewProfile }) => {
     }
   };
 
-  // ... (El resto de funciones handleVote, handleDeletePost, handleUpdatePost siguen igual)
   const handleVote = async (postId, type) => {
     const previousPosts = queryClient.getQueryData(['feed', feedType, user.id]);
     const post = previousPosts?.find(p => p.id === postId);
@@ -307,8 +307,18 @@ const FeedView = ({ user, onViewProfile }) => {
           </div>
         )}
       </div>
-      <aside className="hidden lg:block lg:col-span-1">
+      <aside className="hidden lg:block lg:col-span-1 space-y-4">
         <Card className="p-4"><h3 className="font-bold mb-4 flex items-center gap-2"><Briefcase size={18} className="text-gold-champagne" /> Empleos</h3>{JOBS_DATA.slice(0, 2).map(job => (<div key={job.id} className="border-b dark:border-slate-700 pb-2 mb-2 last:border-0"><h4 className="font-semibold text-sm">{job.title}</h4><p className="text-xs text-gray-500">{job.company}</p></div>))}</Card>
+        
+        {/* CORRECCIÓN 3: Bloque de Recomendaciones insertado aquí */}
+        <Card className="p-4">
+          <h3 className="font-bold mb-4 flex items-center gap-2 text-gray-800 dark:text-white">
+            <UserPlus size={18} className="text-gold-champagne" /> 
+            A quién seguir
+          </h3>
+          <RecommendationsWidget user={user} limit={3} compact={true} />
+        </Card>
+
       </aside>
     </div>
   );

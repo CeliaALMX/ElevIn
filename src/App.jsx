@@ -384,7 +384,8 @@ function App() {
                 {view === 'job-detail' && <JobDetailView job={selectedJob} onBack={() => setView('jobs')} onApply={handleApplyJob} userRole={user.role} isApplied={appliedJobs.includes(selectedJob?.id)} onReport={handleOpenReport} onViewCompany={handleViewCompanyProfile} />}
                 {view === 'create-job' && <CreateJobView onCreate={handleCreateJob} onCancel={() => setView('jobs')} currentUser={user} />}
                 {view === 'search' && <SearchView results={searchResults} loading={isSearching} onItemClick={handleSearchResultClick} />}
-                {view === 'networking' && <NetworkingView />}
+                {view === 'networking' && <NetworkingView user={user} onNavigate={setView} />}
+
                 {view === 'support' && <SupportView />}
                 {view === 'chat' && <ConversationsView currentUser={user} />}
                 {view === 'admin' && <AdminDashboard currentUser={user} />}
