@@ -2,11 +2,31 @@ import React from 'react';
 import { ArrowLeft, MapPin, Building, Briefcase, Calendar, Clock, CheckCircle, Share2, Flag, DollarSign, Check } from 'lucide-react';
 import Button from '../ui/Button';
 import Avatar from '../ui/Avatar';
+// 1. Importamos el hook de notificaciones
+import { useNotifications } from '../context/NotificationContext';
 
-// Se agrega la prop 'onViewCompany' para manejar la navegación al perfil
 const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, onViewCompany }) => {
+  // 2. Extraemos la función notify
+  const { notify } = useNotifications();
+
   if (!job) return null;
   const isCompany = userRole === 'Empresa';
+
+  // 3. Creamos una función interna para manejar la postulación y la notificación
+  const handleApplyWithNotification = async () => {
+    if (isApplied) return;
+
+    // Ejecutamos la función original de postulación
+    onApply(job.id, job.title);
+
+    // Enviamos la notificación al dueño del empleo (job.user_id)
+    await notify({
+      recipientId: job.user_id, // El ID de la empresa/usuario que publicó
+      type: 'postulación',      // Tipo de aviso
+      entityId: job.id,         // ID del empleo para referencia
+      message: `se ha postulado a tu vacante: ${job.title}`
+    });
+  };
 
   return (
     <div className="w-full min-h-screen bg-white dark:bg-slate-900 animate-in slide-in-from-right-4 duration-300">
@@ -22,9 +42,8 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
                 <Share2 size={18} />
              </button>
              {!isCompany && (
-               /* Botón Header: También cambia estado */
                <Button 
-                 onClick={() => !isApplied && onApply(job.id, job.title)} 
+                 onClick={handleApplyWithNotification} 
                  disabled={isApplied}
                  size="sm" 
                  className={`hidden sm:flex text-xs py-1.5 h-8 ${isApplied ? 'bg-green-600 hover:bg-green-700 border-green-600 text-white cursor-default' : ''}`}
@@ -49,7 +68,6 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
                 {job.title}
               </h1>
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-gray-600 dark:text-gray-300 text-sm">
-                 {/* MODIFICACIÓN: Botón interactivo para ir al perfil de la empresa */}
                  <button 
                     onClick={() => onViewCompany && onViewCompany(job)}
                     className="font-semibold text-gold-premium dark:text-gold-champagne flex items-center gap-1.5 hover:underline hover:white dark:hover:text-ivory transition-colors"
@@ -138,7 +156,7 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
 
                 {!isCompany ? (
                    <Button 
-                     onClick={() => !isApplied && onApply(job.id, job.title)} 
+                     onClick={handleApplyWithNotification} 
                      disabled={isApplied}
                      className={`w-full py-3 text-base mb-3 transition-all ${
                        isApplied 

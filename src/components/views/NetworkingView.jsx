@@ -1,8 +1,11 @@
 import React, { useMemo } from 'react';
 import RecommendationsWidget from '../widgets/RecommendationsWidget';
 import { Users, Loader2 } from 'lucide-react';
+import { useNotifications } from '../../context/NotificationContext';
 
 const NetworkingView = ({ user, onNavigate }) => {
+  const { notify } = useNotifications();
+
   const currentUser = useMemo(() => {
     if (user?.id) return user;
     try {
@@ -16,13 +19,20 @@ const NetworkingView = ({ user, onNavigate }) => {
 
   const handleMessage = (targetUser) => {
     if (onNavigate) {
-      // En App.jsx, la vista de chat es 'chat'
       onNavigate('chat');
-      console.log('Navegar al chat con:', targetUser);
     }
   };
 
-  // Si el usuario no ha cargado, mostramos loader centrado y salimos.
+  // Esta es la función que dispara la campana en la otra cuenta
+  const handleFollowNotification = async (targetUserId) => {
+    console.log("Intentando notificar al usuario:", targetUserId);
+    await notify({
+      recipientId: targetUserId,
+      type: 'follow',
+      message: 'ha comenzado a seguirte'
+    });
+  };
+
   if (!currentUser) {
     return (
       <div className="flex items-center justify-center h-64 w-full">
@@ -33,7 +43,6 @@ const NetworkingView = ({ user, onNavigate }) => {
 
   return (
     <div className="pb-24 pt-4 max-w-2xl mx-auto space-y-6 px-4">
-      {/* Header Visual */}
       <div className="bg-gradient-to-r from-emerald-dark to-emerald-medium p-6 rounded-xl text-white shadow-lg relative overflow-hidden">
         <div className="relative z-10">
           <h2 className="text-xl font-bold flex items-center gap-2">
@@ -44,13 +53,11 @@ const NetworkingView = ({ user, onNavigate }) => {
             Amplía tus oportunidades conectando con colegas del sector de elevadores.
           </p>
         </div>
-        {/* Decoración de fondo */}
         <div className="absolute top-0 right-0 p-4 opacity-10">
           <Users size={120} />
         </div>
       </div>
 
-      {/* Lista de Sugerencias */}
       <div>
         <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 pl-3 border-l-4 border-emerald-500">
           Sugerencias para ti
@@ -61,6 +68,8 @@ const NetworkingView = ({ user, onNavigate }) => {
           limit={20}
           compact={false}
           onMessage={handleMessage}
+          // Esta prop es vital para que el Widget avise al terminar el proceso
+          onFollowSuccess={handleFollowNotification} 
         />
       </div>
     </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Camera, Briefcase, Mail, Phone, Edit2, X, Save, Plus, Trash2, CheckCircle, ArrowUpCircle, Loader2, MessageSquare, MessageCircle } from 'lucide-react';
-import { supabase, validateSession } from '../../lib/supabase'; // IMPORTAR
+import { supabase, validateSession } from '../../lib/supabase';
 import { uploadFileToSupabase } from '../../helpers/fileUpload';
 import { useComments } from '../../hooks/useComments';
 import { useChat } from '../../hooks/useChat';
@@ -46,7 +46,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   }, [user, editing]);
 
   const fetchUserPostsData = async () => {
-    // Optional check
     await validateSession().catch(() => {});
     const { data: postsData } = await supabase.from('posts').select(`*, profiles (full_name, role, avatar_initials, avatar_url, company)`).eq('user_id', user.id).order('created_at', { ascending: false });
     const { data: userVotes } = await supabase.from('post_votes').select('post_id, vote_type').eq('user_id', currentUser.id);
@@ -85,7 +84,7 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
 
     setLoadingState(true);
     try {
-      await validateSession(); // Guardia
+      await validateSession();
       const publicUrl = await uploadFileToSupabase(file, user.id);
       if (publicUrl) {
         const { error } = await supabase.from('profiles').update({ [dbField]: publicUrl }).eq('id', user.id);
@@ -99,14 +98,16 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   };
 
   const handleVote = async (postId, type) => {
-    // Logica idéntica al Feed (optimista)
     if (!currentUser?.id) return;
     const post = userPosts.find(p => p.id === postId); if (!post) return;
     const currentVote = post.user_vote; const newVote = currentVote === type ? null : type;
     setUserPosts(prev => prev.map(p => { if (p.id !== postId) return p; let l = p.likes_count, d = p.dislikes_count; if (currentVote === 'like') l--; if (currentVote === 'dislike') d--; if (newVote === 'like') l++; if (newVote === 'dislike') d++; return { ...p, user_vote: newVote, likes_count: l, dislikes_count: d }; }));
     try {
       if (currentVote) await supabase.from('post_votes').delete().match({ user_id: currentUser.id, post_id: postId });
-      if (newVote) { await supabase.from('post_votes').upsert({ user_id: currentUser.id, post_id: postId, vote_type: newVote }); await notify({ recipientId: post.user_id, type: newVote, entityId: postId }); }
+      if (newVote) { 
+        await supabase.from('post_votes').upsert({ user_id: currentUser.id, post_id: postId, vote_type: newVote }); 
+        await notify({ recipientId: post.user_id, type: newVote, entityId: postId }); 
+      }
       const rpcName = newVote === 'like' ? 'increment_likes' : (newVote === 'dislike' ? 'increment_dislikes' : (currentVote === 'like' ? 'decrement_likes' : 'decrement_dislikes'));
       await supabase.rpc(rpcName, { post_id: postId });
     } catch (e) { queryClient.invalidateQueries(['user_posts', user.id]); }
@@ -128,15 +129,43 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
     try { await validateSession(); await supabase.from('posts').update(updates).eq('id', postId).eq('user_id', currentUser.id); } catch { queryClient.invalidateQueries(['user_posts', user.id]); }
   };
 
+  // --- FUNCIÓN TOGGLE FOLLOW ACTUALIZADA CON NOTIFICACIÓN ---
   const toggleFollow = async () => {
     if (!currentUser?.id || followLoading) return;
     setFollowLoading(true);
-    queryClient.setQueryData(['follow_status', currentUser.id, user.id], !isFollowing);
+    
+    // UI Optimista
+    const nextFollowStatus = !isFollowing;
+    queryClient.setQueryData(['follow_status', currentUser.id, user.id], nextFollowStatus);
+    
     try {
-      if (isFollowing) await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', user.id);
-      else { await supabase.from('follows').insert([{ follower_id: currentUser.id, following_id: user.id }]); await notify({ recipientId: user.id, type: 'follow' }); }
+      await validateSession();
+      if (isFollowing) {
+        await supabase.from('follows')
+          .delete()
+          .eq('follower_id', currentUser.id)
+          .eq('following_id', user.id);
+      } else {
+        const { error } = await supabase.from('follows')
+          .insert([{ follower_id: currentUser.id, following_id: user.id }]);
+        
+        if (error) throw error;
+
+        // NOTIFICACIÓN: Avisamos al usuario que lo estamos siguiendo
+        await notify({ 
+          recipientId: user.id, 
+          type: 'follow',
+          content: 'ha comenzado a seguirte' 
+        });
+      }
       queryClient.invalidateQueries(['feed']);
-    } catch (e) { queryClient.invalidateQueries(['follow_status']); } finally { setFollowLoading(false); }
+      queryClient.invalidateQueries(['follow_status', currentUser.id, user.id]);
+    } catch (e) { 
+      console.error("Error en toggleFollow:", e);
+      queryClient.invalidateQueries(['follow_status', currentUser.id, user.id]); 
+    } finally { 
+      setFollowLoading(false); 
+    }
   };
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -145,7 +174,7 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
     if (!isOwner || !formData.full_name.trim()) return;
     setLoading(true);
     try {
-      await validateSession(); // Guardia crítico
+      await validateSession();
       const updates = { ...formData, experience: formData.experience.sort((a,b) => new Date(b.start_date) - new Date(a.start_date)) };
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
       if (error) throw error;
@@ -154,7 +183,7 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
       queryClient.invalidateQueries({ queryKey: ['feed'] });
       queryClient.invalidateQueries({ queryKey: ['user_posts'] });
       if (onProfileUpdate) onProfileUpdate();
-    } catch(err) { alert("Error al guardar: Sesión expirada o red inestable."); } finally { setLoading(false); }
+    } catch(err) { alert("Error al guardar."); } finally { setLoading(false); }
   };
 
   const renderExperienceSection = () => {
@@ -225,7 +254,20 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
             <Card className="p-5"><h3 className="text-sm font-bold text-gold-champagne uppercase tracking-wider mb-4">Contacto</h3><div className="space-y-3"><div className="flex items-center gap-3 text-sm"><Mail size={16} className="text-gray-400" />{editing ? <input name="email" value={formData.email} onChange={handleChange} className="border-b w-full bg-transparent" /> : <span>{displayUser.email || 'No visible'}</span>}</div><div className="flex items-center gap-3 text-sm"><Phone size={16} className="text-gray-400" />{editing ? <input name="phone" value={formData.phone} onChange={handleChange} className="border-b w-full bg-transparent" /> : <span>{displayUser.phone || 'No visible'}</span>}</div></div></Card>
             {!isCompanyProfile && renderExperienceSection()}
         </div>
-        <div className="lg:col-span-2"><div className="mt-0"><h3 className="text-lg font-bold mb-4 flex items-center gap-2"><MessageSquare className="text-gold-premium" size={20} /> Publicaciones</h3>{(isCompanyProfile || isOwner || isFollowing) ? (<div className="space-y-4">{postsLoading ? <Loader2 className="animate-spin mx-auto text-gold-premium" /> : userPosts.length > 0 ? userPosts.map(post => (<PostItem key={post.id} post={post} user={currentUser} onVote={handleVote} onDelete={handleDeletePost} onUpdate={handleUpdatePost} onToggleComments={() => toggleComments(post.id)} showComments={activeCommentsPostId === post.id} comments={commentsData[post.id]} onCommentAction={commentActions} onViewProfile={onViewProfile} onOpenDetail={() => {}} />)) : <p className="text-gray-400 italic text-center py-8">No hay publicaciones recientes.</p>}</div>) : (<Card className="p-10 text-center italic text-gold-premium border-dashed border-2">Sigue a este usuario para ver sus publicaciones.</Card>)}</div></div>
+        <div className="lg:col-span-2">
+          <div className="mt-0">
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><MessageSquare className="text-gold-premium" size={20} /> Publicaciones</h3>
+            {(isCompanyProfile || isOwner || isFollowing) ? (
+              <div className="space-y-4">
+                {postsLoading ? <Loader2 className="animate-spin mx-auto text-gold-premium" /> : userPosts.length > 0 ? userPosts.map(post => (
+                  <PostItem key={post.id} post={post} user={currentUser} onVote={handleVote} onDelete={handleDeletePost} onUpdate={handleUpdatePost} onToggleComments={() => toggleComments(post.id)} showComments={activeCommentsPostId === post.id} comments={commentsData[post.id]} onCommentAction={commentActions} onViewProfile={onViewProfile} onOpenDetail={() => {}} />
+                )) : <p className="text-gray-400 italic text-center py-8">No hay publicaciones recientes.</p>}
+              </div>
+            ) : (
+              <Card className="p-10 text-center italic text-gold-premium border-dashed border-2">Sigue a este usuario para ver sus publicaciones.</Card>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

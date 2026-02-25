@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase, validateSession } from '../lib/supabase'; // IMPORTAR
+import { supabase, validateSession } from '../lib/supabase';
 import { useNotifications } from '../context/NotificationContext';
 
 export const useComments = (setPosts, user) => {
@@ -26,7 +26,6 @@ export const useComments = (setPosts, user) => {
 
       setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comments_count: count || 0 } : p)));
     } catch (e) {
-      // Si falla, no bloqueamos UI.
       console.warn('refreshPostCommentsCount error:', e);
     }
   };
@@ -34,7 +33,6 @@ export const useComments = (setPosts, user) => {
   const fetchComments = async (postId) => {
     setLoadingComments(true);
     try {
-      // Guardia suave: si expira el token en background, lo renueva.
       await validateSession().catch(() => {});
 
       const { data: comments, error } = await supabase
@@ -78,54 +76,63 @@ export const useComments = (setPosts, user) => {
     fetchComments(postId);
   };
 
+  // --- FUNCIÓN ACTUALIZADA PARA REDIRECCIÓN ---
   const addComment = async (postId, content, postOwnerId) => {
     if (!content?.trim()) return;
 
     try {
-        // --- GUARDIA DE SESIÓN ---
         await validateSession();
-        // -------------------------
 
+        // Optimistic UI: Incrementamos el contador visualmente
         setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p));
         
-        const { error } = await supabase.from('post_comments').insert({ post_id: postId, user_id: user.id, content });
+        // Insertamos el comentario en la base de datos
+        const { error } = await supabase.from('post_comments').insert({ 
+          post_id: postId, 
+          user_id: user.id, 
+          content 
+        });
+        
         if (error) throw error;
 
-        if (postOwnerId) await notify({ recipientId: postOwnerId, type: 'comment', entityId: postId });
+        // --- LÓGICA DE NOTIFICACIÓN PARA REDIRECCIÓN ---
+        // Solo enviamos si existe el dueño y no somos nosotros mismos
+        if (postOwnerId && postOwnerId !== user.id) {
+          await notify({ 
+            recipientId: postOwnerId, 
+            type: 'comment', 
+            entityId: postId // Este es el ID que App.jsx usará para abrir la publicación
+          });
+        }
         
+        // Refrescamos los datos para mostrar el nuevo comentario
         await fetchComments(postId);
         await refreshPostCommentsCount(postId);
 
     } catch (error) {
         console.error('Error adding comment:', error);
         alert('No se pudo enviar el comentario. Intenta de nuevo.');
-        await refreshPostCommentsCount(postId); // Revertir conteo si falla
+        await refreshPostCommentsCount(postId); 
     }
   };
 
   const deleteComment = async (commentId) => {
     if (!window.confirm('¿Eliminar comentario?')) return;
     try {
-        await validateSession(); // Guardia
-
+        await validateSession();
         let postId = Object.keys(commentsData).find(pid => commentsData[pid]?.some(c => c.id === commentId));
         if (postId) {
             setPosts(prev => prev.map(p => String(p.id) === String(postId) ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) } : p));
         }
-
         const { error } = await supabase.from('post_comments').delete().eq('id', commentId);
         if (error) throw error;
-
         setCommentsData(prev => {
             const next = { ...prev };
             for (const pid in next) next[pid] = next[pid].filter(c => c.id !== commentId);
             return next;
         });
         if (postId) await refreshPostCommentsCount(postId);
-
-    } catch (e) {
-        alert("Error eliminando comentario.");
-    }
+    } catch (e) { alert("Error eliminando comentario."); }
   };
 
   const editComment = async (commentId, content) => {
