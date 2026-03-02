@@ -2,8 +2,8 @@ import React from 'react';
 import { ArrowLeft, MapPin, Building, Briefcase, Calendar, Clock, CheckCircle, Share2, Flag, DollarSign, Check } from 'lucide-react';
 import Button from '../ui/Button';
 import Avatar from '../ui/Avatar';
-// 1. Importamos el hook de notificaciones
-import { useNotifications } from '../context/NotificationContext';
+// 1. Importamos el hook de notificaciones con la ruta CORRECTA (../../)
+import { useNotifications } from '../../context/NotificationContext';
 
 const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, onViewCompany }) => {
   // 2. Extraemos la función notify
@@ -12,21 +12,44 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
   if (!job) return null;
   const isCompany = userRole === 'Empresa';
 
-  // 3. Creamos una función interna para manejar la postulación y la notificación
+  // 3. Función para postularse y mandar notificación a la empresa
   const handleApplyWithNotification = async () => {
     if (isApplied) return;
 
     // Ejecutamos la función original de postulación
     onApply(job.id, job.title);
 
-    // Enviamos la notificación al dueño del empleo (job.user_id)
-    await notify({
-      recipientId: job.user_id, // El ID de la empresa/usuario que publicó
-      type: 'postulación',      // Tipo de aviso
-      entityId: job.id,         // ID del empleo para referencia
-      message: `se ha postulado a tu vacante: ${job.title}`
-    });
+    // Si la chamba tiene dueño, le avisamos
+    if (job.user_id) {
+      await notify({
+        recipientId: job.user_id, // El ID de quien publicó el empleo
+        type: 'postulación',
+        entityId: job.id,         // Guardamos el ID del empleo para que al darle click se abra
+        message: `se ha postulado a tu vacante: ${job.title}`
+      });
+    }
   };
+
+  // 👇 4. AQUÍ ESTÁ LA NUEVA FUNCIÓN PARA COMPARTIR LA VACANTE 👇
+  const handleShareJob = async () => {
+    const shareData = {
+      title: `Vacante: ${job.title}`,
+      text: `Mira esta vacante de ${job.title} en la empresa ${job.company}. Postúlate en AscenLin:\n`,
+      url: window.location.origin, 
+    };
+
+    if (navigator.share) {
+      try { 
+        await navigator.share(shareData); 
+      } catch (err) {
+        console.log('Compartir cancelado o falló', err);
+      }
+    } else {
+      navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
+      alert('¡Enlace copiado al portapapeles listo para pegar en WhatsApp o donde quieras!');
+    }
+  };
+  // 👆 FIN DE LA FUNCIÓN PARA COMPARTIR 👆
 
   return (
     <div className="w-full min-h-screen bg-white dark:bg-slate-900 animate-in slide-in-from-right-4 duration-300">
@@ -38,7 +61,8 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
         </button>
         
         <div className="flex items-center gap-3">
-             <button className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+             {/* 👇 CONECTAMOS EL BOTÓN AL HANDLE SHARE 👇 */}
+             <button onClick={handleShareJob} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-full transition-colors">
                 <Share2 size={18} />
              </button>
              {!isCompany && (
@@ -49,7 +73,7 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
                  className={`hidden sm:flex text-xs py-1.5 h-8 ${isApplied ? 'bg-green-600 hover:bg-green-700 border-green-600 text-white cursor-default' : ''}`}
                >
                  {isApplied ? (
-                   <> <Check size={14} className="mr-1"/> CV Enviado </>
+                   <div className="flex items-center"><Check size={14} className="mr-1"/> CV Enviado </div>
                  ) : 'Postularme'}
                </Button>
              )}
@@ -70,7 +94,7 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-gray-600 dark:text-gray-300 text-sm">
                  <button 
                     onClick={() => onViewCompany && onViewCompany(job)}
-                    className="font-semibold text-gold-premium dark:text-gold-champagne flex items-center gap-1.5 hover:underline hover:white dark:hover:text-ivory transition-colors"
+                    className="font-semibold text-gold-premium dark:text-gold-champagne flex items-center gap-1.5 hover:underline transition-colors"
                  >
                     <Building size={16} /> {job.company}
                  </button>
@@ -144,7 +168,7 @@ const JobDetailView = ({ job, onBack, onApply, userRole, isApplied, onReport, on
 
           {/* Sidebar Derecho */}
           <div className="lg:col-span-4">
-             <div className="sticky top-32 p-6 bg-softgray dark:bg-slate-800 rounded-xl border border-blue-100 dark:border-slate-700">
+             <div className="sticky top-32 p-6 bg-gray-50 dark:bg-slate-800 rounded-xl border border-blue-100 dark:border-slate-700">
                 <h4 className="font-bold text-gray-900 dark:text-white mb-4">
                    {isApplied ? '¡Ya te has postulado!' : '¿Te interesa este puesto?'}
                 </h4>

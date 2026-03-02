@@ -6,6 +6,8 @@ export const useComments = (setPosts, user) => {
   const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
   const [commentsData, setCommentsData] = useState({});
   const [loadingComments, setLoadingComments] = useState(false);
+  
+  // Instanciamos a nuestro cartero
   const { notify } = useNotifications();
 
   const sortComments = (comments) => {
@@ -76,17 +78,17 @@ export const useComments = (setPosts, user) => {
     fetchComments(postId);
   };
 
-  // --- FUNCIÓN ACTUALIZADA PARA REDIRECCIÓN ---
+  // --- GATILLO DE COMENTARIOS CORREGIDO ---
   const addComment = async (postId, content, postOwnerId) => {
     if (!content?.trim()) return;
 
     try {
         await validateSession();
 
-        // Optimistic UI: Incrementamos el contador visualmente
+        // 1. UI: Incrementamos contador rápido
         setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p));
         
-        // Insertamos el comentario en la base de datos
+        // 2. Base de datos: Guardamos el comentario
         const { error } = await supabase.from('post_comments').insert({ 
           post_id: postId, 
           user_id: user.id, 
@@ -95,19 +97,18 @@ export const useComments = (setPosts, user) => {
         
         if (error) throw error;
 
-        // --- LÓGICA DE NOTIFICACIÓN PARA REDIRECCIÓN ---
-        // Solo enviamos si existe el dueño y no somos nosotros mismos
+        // 3. Notificación: Activamos la campana si el dueño no es el mismo que comenta
         if (postOwnerId && postOwnerId !== user.id) {
           await notify({ 
             recipientId: postOwnerId, 
             type: 'comment', 
-            entityId: postId // Este es el ID que App.jsx usará para abrir la publicación
-          });
+            entityId: String(postId), // ID del post para la redirección
+            message: 'comentó tu publicación.' // Texto que verá en la campana
+          }).catch(e => console.warn("Error enviando notificación de comentario:", e));
         }
         
-        // Refrescamos los datos para mostrar el nuevo comentario
+        // 4. Refrescamos la lista de comentarios para que aparezca
         await fetchComments(postId);
-        await refreshPostCommentsCount(postId);
 
     } catch (error) {
         console.error('Error adding comment:', error);

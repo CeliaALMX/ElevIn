@@ -3,28 +3,23 @@ import { Briefcase, Home, User, LogOut, Bell, ArrowUp, Users, LifeBuoy, Settings
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase, recoverSupabase } from './lib/supabase';
 
-// --- COMPONENTES UI ---
 import LoginScreen from './components/LoginScreen';
 import Avatar from './components/ui/Avatar';
 import { DesktopNavLink, NavButton } from './components/ui/NavComponents';
 import ReportJobModal from './components/modals/ReportJobModal';
 
-// --- NUEVAS VISTAS DE ESTADO ---
 import { CheckEmailView, VerifiedView } from './components/views/AuthStatusViews';
 
-// --- CHAT CONTEXT & WIDGET ---
 import { ChatProvider, ChatContext } from './context/ChatContext'; 
 import ChatWidget from './components/chat/ChatWidget';
 import { useChat } from './hooks/useChat'; 
 
-// --- NOTIFICATION CONTEXT & COMPONENT ---
 import { NotificationProvider } from './context/NotificationContext';
 import NotificationBell from './components/ui/NotificationBell';
+import NotificationToast from './components/ui/NotificationToast';
 
-// --- COMPONENTES MODULARIZADOS ---
 import SearchBar from './components/ui/SearchBar';
 
-// --- VISTAS CON LAZY LOADING ---
 const FeedView = lazy(() => import('./components/views/FeedView'));
 const JobsView = lazy(() => import('./components/views/JobsView'));
 const NetworkingView = lazy(() => import('./components/views/NetworkingView'));
@@ -45,7 +40,6 @@ const PageLoader = () => (
   </div>
 );
 
-// --- COMPONENTE DE CONTENIDO (Aquí vive toda la lógica) ---
 function AppContent() {
   const [user, setUser] = useState(() => {
     try {
@@ -55,6 +49,8 @@ function AppContent() {
   });
 
   const [view, setView] = useState(() => localStorage.getItem('elevin_view') || 'feed');
+  const [targetPostId, setTargetPostId] = useState(null); 
+
   const [sessionLoading, setSessionLoading] = useState(!user);
   const [viewedProfile, setViewedProfile] = useState(null);
   const [isBlockedByExtension, setIsBlockedByExtension] = useState(false);
@@ -64,7 +60,6 @@ function AppContent() {
   const userRef = useRef(null);
   const fetchingProfileRef = useRef(null);
   
-  // Ahora sí podemos usar useChat porque AppContent está dentro del Provider
   const { openChatWithUser } = useChat();
 
   useEffect(() => {
@@ -110,9 +105,7 @@ function AppContent() {
   const [jobToReport, setJobToReport] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
 
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    return localStorage.getItem('theme') === 'dark';
-  });
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
 
   useEffect(() => { localStorage.setItem('elevin_jobs', JSON.stringify(jobs)); }, [jobs]);
   useEffect(() => { localStorage.setItem('elevin_applications', JSON.stringify(appliedJobs)); }, [appliedJobs]);
@@ -153,15 +146,9 @@ function AppContent() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
         const profile = await fetchProfile(session.user.id, { includeAdmin: true });
-        if (profile && mounted) {
-          setUser(profile);
-          setView('feed');
-        }
+        if (profile && mounted) { setUser(profile); setView('feed'); }
       }
-      if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setView('feed');
-      }
+      if (event === 'SIGNED_OUT') { setUser(null); setView('feed'); }
     });
 
     const checkSession = async () => {
@@ -175,10 +162,7 @@ function AppContent() {
     };
 
     checkSession();
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    return () => { mounted = false; subscription.unsubscribe(); };
   }, []);
 
   const handleLogout = async () => { 
@@ -188,11 +172,29 @@ function AppContent() {
   };
   
   const handleViewJobDetail = (job) => { setSelectedJob(job); setView('job-detail'); window.scrollTo(0,0); };
-  const handleViewUserProfile = async (userId) => { 
-    if (userId === user.id) { setViewedProfile(null); setView('profile'); return; } 
-    const p = await fetchProfile(userId); 
-    if(p) { setViewedProfile(p); setView('profile'); window.scrollTo(0,0); } 
+  
+  // 👇 1. AQUÍ ESTÁ LA CORRECCIÓN BLINDADA PARA VER PERFILES 👇
+  const handleViewUserProfile = async (userIdOrObj) => { 
+    if (!userIdOrObj) return;
+    
+    // Sacamos el ID por si nos mandaron todo el objeto de usuario por error
+    const targetId = typeof userIdOrObj === 'object' ? userIdOrObj.id : userIdOrObj;
+
+    if (targetId === user.id) { 
+      setViewedProfile(null); 
+      setView('profile'); 
+      window.scrollTo(0,0);
+      return; 
+    } 
+    const p = await fetchProfile(targetId); 
+    if(p) { 
+      setViewedProfile(p); 
+      setView('profile'); 
+      window.scrollTo(0,0); 
+    } 
   };
+  // 👆 FIN DE LA CORRECCIÓN 👆
+
   const handleGoToMyProfile = () => { setViewedProfile(null); setView('profile'); };
   const handleApplyJob = (id) => { if (!appliedJobs.includes(id)) setAppliedJobs(prev => [...prev, id]); };
   const handleOpenReport = (job) => { setJobToReport(job); setIsReportModalOpen(true); };
@@ -203,22 +205,11 @@ function AppContent() {
     setIsSearching(true);
     setView('search');
     try {
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, avatar_url, avatar_initials, role, company, location')
-        .ilike('full_name', `%${query}%`)
-        .limit(20);
+      const { data: profiles, error } = await supabase.from('profiles').select('id, full_name, avatar_url, avatar_initials, role, company, location').ilike('full_name', `%${query}%`).limit(20);
       if (error) throw error;
-      const filteredJobs = jobs.filter(job => 
-        job.title.toLowerCase().includes(query.toLowerCase()) ||
-        job.company.toLowerCase().includes(query.toLowerCase())
-      );
+      const filteredJobs = jobs.filter(job => job.title.toLowerCase().includes(query.toLowerCase()) || job.company.toLowerCase().includes(query.toLowerCase()));
       setSearchResults({ users: profiles || [], jobs: filteredJobs });
-    } catch (err) {
-      console.error("Error en búsqueda global:", err);
-    } finally {
-      setIsSearching(false);
-    }
+    } catch (err) {} finally { setIsSearching(false); }
   };
 
   const handleNotificationAction = async (notification) => {
@@ -230,50 +221,36 @@ function AppContent() {
       case 'message':
         if (actor_id) {
           const profile = await fetchProfile(actor_id);
-          if (profile) {
-            openChatWithUser(profile);
-            setView('chat'); 
-          }
+          if (profile) { openChatWithUser(profile); setView('chat'); }
+        }
+        break;
+
+      case 'postulación': 
+        if (entity_id) {
+          const jobToOpen = jobs.find(j => String(j.id) === String(entity_id));
+          if (jobToOpen) { setSelectedJob(jobToOpen); setView('job-detail'); } 
+          else { setView('jobs'); }
         }
         break;
 
       case 'comment':
       case 'like':
         if (entity_id) {
-          try {
-            const { data: postData } = await supabase
-              .from('posts')
-              .select(`*, profiles (full_name, role, avatar_initials, avatar_url, company)`)
-              .eq('id', entity_id)
-              .maybeSingle();
-
-            if (postData) {
-              setSelectedJob(postData);
-              setView('job-detail');
-            } else {
-              setView('feed');
-            }
-          } catch (err) {
-            setView('feed');
-          }
+          queryClient.invalidateQueries({ queryKey: ['feed'] });
+          setTargetPostId(entity_id);
+          setView('feed');
         }
         break;
 
       case 'follow':
         if (actor_id) {
           const profile = await fetchProfile(actor_id);
-          if (profile) {
-            setViewedProfile(profile);
-            setView('profile');
-          }
+          if (profile) { setViewedProfile(profile); setView('profile'); }
         }
         break;
 
-      default:
-        setView('feed');
-        break;
+      default: setView('feed'); break;
     }
-    window.scrollTo(0, 0);
   };
 
   if (sessionLoading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-gold-champagne w-10 h-10"/></div>;
@@ -312,27 +289,19 @@ function AppContent() {
           </nav>
           <main className={`min-h-[calc(100vh-4rem)] ${(view === 'job-detail' || view === 'chat' || view === 'admin') ? 'w-full' : 'max-w-7xl mx-auto p-4'}`}>
             <Suspense fallback={<PageLoader />}>
-                {view === 'feed' && <FeedView user={user} onViewProfile={handleViewUserProfile} />}
+                {view === 'feed' && <FeedView user={user} onViewProfile={handleViewUserProfile} targetPostId={targetPostId} onClearTarget={() => setTargetPostId(null)} />}
                 {view === 'jobs' && <JobsView jobs={jobs.filter(j => !reportedJobs.includes(j.id))} userRole={user.role} onCreateJobClick={() => setView('create-job')} onViewDetail={handleViewJobDetail} appliedJobs={appliedJobs} />}
                 {view === 'job-detail' && <JobDetailView job={selectedJob} onBack={() => setView('jobs')} onApply={handleApplyJob} userRole={user.role} isApplied={appliedJobs.includes(selectedJob?.id)} onReport={handleOpenReport} onViewCompany={(j) => handleViewUserProfile(j.user_id)} />}
                 {view === 'networking' && <NetworkingView user={user} onNavigate={setView} />}
                 {view === 'support' && <SupportView />}
                 {view === 'chat' && <ConversationsView currentUser={user} />}
                 {view === 'admin' && <AdminDashboard currentUser={user} />}
-                {view === 'profile' && <ProfileView user={viewedProfile || user} currentUser={user} onProfileUpdate={() => {}} />}
+                
+                {/* 👇 2. AQUÍ CONECTAMOS EL CABLE SUELTO DEL PERFIL (onViewProfile) 👇 */}
+                {view === 'profile' && <ProfileView user={viewedProfile || user} currentUser={user} onProfileUpdate={() => {}} onViewProfile={handleViewUserProfile} />}
+                
                 {view === 'settings' && <SettingsView isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />}
-                {view === 'search' && (
-                  <SearchView 
-                    results={searchResults} 
-                    isLoading={isSearching} 
-                    onViewProfile={handleViewUserProfile}
-                    onViewJob={handleViewJobDetail}
-                    onItemClick={(item) => {
-                      if (item.full_name) handleViewUserProfile(item.id);
-                      else if (item.title) handleViewJobDetail(item);
-                    }}
-                  />
-                )}
+                {view === 'search' && <SearchView results={searchResults} isLoading={isSearching} onViewProfile={handleViewUserProfile} onViewJob={handleViewJobDetail} onItemClick={(item) => { if (item.full_name) handleViewUserProfile(item.id); else if (item.title) handleViewJobDetail(item); }} />}
             </Suspense>
           </main>
           <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t flex justify-around p-2 pb-safe z-40">
@@ -342,13 +311,16 @@ function AppContent() {
             <NavButton icon={MessageCircle} label="Chat" active={view === 'chat'} onClick={() => setView('chat')} />
             <NavButton icon={User} label="Perfil" active={view === 'profile'} onClick={handleGoToMyProfile} />
           </div>
+          
           <ChatWidget currentUser={user} />
+          
+          <NotificationToast onNavigate={handleNotificationAction} />
+          
           <ReportJobModal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} onSubmit={handleSubmitReport} jobTitle={jobToReport?.title} />
         </div>
   );
 }
 
-// --- COMPONENTE RAÍZ (Configura los Providers y renderiza AppContent) ---
 function App() {
   return (
     <NotificationProvider>
