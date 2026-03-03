@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { supabase, validateSession } from '../lib/supabase'; // IMPORTAR
+import { supabase, validateSession } from '../lib/supabase';
 import { useNotifications } from '../context/NotificationContext';
 
 export const useComments = (setPosts, user) => {
   const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
   const [commentsData, setCommentsData] = useState({});
   const [loadingComments, setLoadingComments] = useState(false);
+  
+  // Instanciamos a nuestro cartero
   const { notify } = useNotifications();
 
   const sortComments = (comments) => {
@@ -26,7 +28,6 @@ export const useComments = (setPosts, user) => {
 
       setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comments_count: count || 0 } : p)));
     } catch (e) {
-      // Si falla, no bloqueamos UI.
       console.warn('refreshPostCommentsCount error:', e);
     }
   };
@@ -34,7 +35,6 @@ export const useComments = (setPosts, user) => {
   const fetchComments = async (postId) => {
     setLoadingComments(true);
     try {
-      // Guardia suave: si expira el token en background, lo renueva.
       await validateSession().catch(() => {});
 
       const { data: comments, error } = await supabase
@@ -78,54 +78,62 @@ export const useComments = (setPosts, user) => {
     fetchComments(postId);
   };
 
+  // --- GATILLO DE COMENTARIOS CORREGIDO ---
   const addComment = async (postId, content, postOwnerId) => {
     if (!content?.trim()) return;
 
     try {
-        // --- GUARDIA DE SESIÓN ---
         await validateSession();
-        // -------------------------
 
+        // 1. UI: Incrementamos contador rápido
         setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p));
         
-        const { error } = await supabase.from('post_comments').insert({ post_id: postId, user_id: user.id, content });
+        // 2. Base de datos: Guardamos el comentario
+        const { error } = await supabase.from('post_comments').insert({ 
+          post_id: postId, 
+          user_id: user.id, 
+          content 
+        });
+        
         if (error) throw error;
 
-        if (postOwnerId) await notify({ recipientId: postOwnerId, type: 'comment', entityId: postId });
+        // 3. Notificación: Activamos la campana si el dueño no es el mismo que comenta
+        if (postOwnerId && postOwnerId !== user.id) {
+          await notify({ 
+            recipientId: postOwnerId, 
+            type: 'comment', 
+            entityId: String(postId), // ID del post para la redirección
+            message: 'comentó tu publicación.' // Texto que verá en la campana
+          }).catch(e => console.warn("Error enviando notificación de comentario:", e));
+        }
         
+        // 4. Refrescamos la lista de comentarios para que aparezca
         await fetchComments(postId);
-        await refreshPostCommentsCount(postId);
 
     } catch (error) {
         console.error('Error adding comment:', error);
         alert('No se pudo enviar el comentario. Intenta de nuevo.');
-        await refreshPostCommentsCount(postId); // Revertir conteo si falla
+        await refreshPostCommentsCount(postId); 
     }
   };
 
   const deleteComment = async (commentId) => {
     if (!window.confirm('¿Eliminar comentario?')) return;
     try {
-        await validateSession(); // Guardia
-
+        await validateSession();
         let postId = Object.keys(commentsData).find(pid => commentsData[pid]?.some(c => c.id === commentId));
         if (postId) {
             setPosts(prev => prev.map(p => String(p.id) === String(postId) ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) } : p));
         }
-
         const { error } = await supabase.from('post_comments').delete().eq('id', commentId);
         if (error) throw error;
-
         setCommentsData(prev => {
             const next = { ...prev };
             for (const pid in next) next[pid] = next[pid].filter(c => c.id !== commentId);
             return next;
         });
         if (postId) await refreshPostCommentsCount(postId);
-
-    } catch (e) {
-        alert("Error eliminando comentario.");
-    }
+    } catch (e) { alert("Error eliminando comentario."); }
   };
 
   const editComment = async (commentId, content) => {

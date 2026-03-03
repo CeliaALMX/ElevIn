@@ -1,7 +1,8 @@
 import React, { createContext, useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+// IMPORTAMOS EL HOOK DE NOTIFICACIONES
+import { useNotifications } from './NotificationContext';
 
-// Exportamos el contexto para que el hook lo pueda consumir
 export const ChatContext = createContext();
 
 export const ChatProvider = ({ children, currentUser }) => {
@@ -15,6 +16,9 @@ export const ChatProvider = ({ children, currentUser }) => {
 
   const [isWidgetOpen, setIsWidgetOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  
+  // EXTRAEMOS LA FUNCIÓN NOTIFY
+  const { notify } = useNotifications();
 
   // Guardar activeChat en localStorage
   useEffect(() => {
@@ -25,7 +29,6 @@ export const ChatProvider = ({ children, currentUser }) => {
     }
   }, [activeChat]);
 
-  // Actualizar ID de conversación (sincronización real-time)
   const updateActiveConversationId = (newId) => {
     setActiveChat(prev => {
       if (!prev) return null;
@@ -65,6 +68,17 @@ export const ChatProvider = ({ children, currentUser }) => {
     setIsMinimized(!isMinimized);
   };
 
+  // --- FUNCIÓN PARA ENVIAR NOTIFICACIÓN DE MENSAJE NUEVO ---
+  // Esta función la consumirán tus componentes de chat (como ChatWidget)
+  const sendChatNotification = async (recipientId) => {
+    if (!notify) return;
+    await notify({
+      recipientId: recipientId,
+      type: 'message',
+      message: 'te envió un mensaje'
+    });
+  };
+
   return (
     <ChatContext.Provider value={{ 
       activeChat, 
@@ -75,7 +89,8 @@ export const ChatProvider = ({ children, currentUser }) => {
       isMinimized, 
       openChatWithUser, 
       closeChat, 
-      minimizeChat 
+      minimizeChat,
+      sendChatNotification // Exportamos esta función para usarla en el envío
     }}>
       {children}
     </ChatContext.Provider>

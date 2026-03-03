@@ -27,7 +27,7 @@ const SearchView = ({ results, loading, onItemClick }) => {
           <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">Personas y Empresas</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {results.users.map(user => (
-              <Card key={user.id} className="p-3 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => onItemClick('profile', user)}>
+              <Card key={user.id} className="p-3 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => onItemClick(user)}>
                 <div className="flex items-center gap-3">
                   <Avatar initials={user.avatar_initials} src={user.avatar_url} />
                   <div className="overflow-hidden">
@@ -48,7 +48,7 @@ const SearchView = ({ results, loading, onItemClick }) => {
           <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">Empleos</h3>
           <div className="space-y-2">
             {results.jobs.map(job => (
-              <Card key={job.id} className="p-4 hover:border-blue-400 cursor-pointer group" onClick={() => onItemClick('job', job)}>
+              <Card key={job.id} className="p-4 hover:border-blue-400 cursor-pointer group" onClick={() => onItemClick(job)}>
                 <div className="flex justify-between items-start">
                     <div>
                         <h4 className="font-bold text-blue-700 dark:text-blue-300 group-hover:underline">{job.title}</h4>

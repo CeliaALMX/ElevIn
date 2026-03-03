@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, Briefcase, Mail, Phone, Edit2, X, Save, Plus, Trash2, CheckCircle, ArrowUpCircle, Loader2, MessageSquare, MessageCircle } from 'lucide-react';
-import { supabase, validateSession } from '../../lib/supabase'; // IMPORTAR
+import { Camera, Briefcase, Mail, Phone, Edit2, X, Save, Plus, Trash2, CheckCircle, ArrowUpCircle, Loader2, MessageSquare, MessageCircle, ChevronRight, FileText, Users, Handshake } from 'lucide-react';
+import { supabase, validateSession } from '../../lib/supabase';
 import { uploadFileToSupabase } from '../../helpers/fileUpload';
 import { useComments } from '../../hooks/useComments';
 import { useChat } from '../../hooks/useChat';
@@ -20,6 +20,8 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   const [editingExpId, setEditingExpId] = useState(null);
   const [tempExp, setTempExp] = useState(null);
   const [followLoading, setFollowLoading] = useState(false);
+
+  const [followModalType, setFollowModalType] = useState(null); 
 
   const queryClient = useQueryClient();
   const { openChatWithUser } = useChat();
@@ -46,7 +48,6 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   }, [user, editing]);
 
   const fetchUserPostsData = async () => {
-    // Optional check
     await validateSession().catch(() => {});
     const { data: postsData } = await supabase.from('posts').select(`*, profiles (full_name, role, avatar_initials, avatar_url, company)`).eq('user_id', user.id).order('created_at', { ascending: false });
     const { data: userVotes } = await supabase.from('post_votes').select('post_id, vote_type').eq('user_id', currentUser.id);
@@ -64,6 +65,51 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
 
   const { data: userPosts = [], isLoading: postsLoading } = useQuery({
     queryKey: ['user_posts', user?.id], queryFn: fetchUserPostsData, enabled: !!user?.id, staleTime: 1000 * 60 * 5
+  });
+
+  const { data: followersCount = 0 } = useQuery({
+    queryKey: ['followers_count', user?.id],
+    queryFn: async () => {
+      const { count } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', user.id);
+      return count || 0;
+    },
+    enabled: !!user?.id
+  });
+
+  const { data: followingCount = 0 } = useQuery({
+    queryKey: ['following_count', user?.id],
+    queryFn: async () => {
+      const { count } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id);
+      return count || 0;
+    },
+    enabled: !!user?.id
+  });
+
+  const { data: followListData = [], isLoading: isLoadingFollowList } = useQuery({
+    queryKey: ['follow_list', followModalType, user?.id],
+    queryFn: async () => {
+      if (!followModalType || !user?.id) return [];
+      
+      const columnToMatch = followModalType === 'followers' ? 'following_id' : 'follower_id';
+      const columnToSelect = followModalType === 'followers' ? 'follower_id' : 'following_id';
+
+      const { data: followData } = await supabase
+        .from('follows')
+        .select(columnToSelect)
+        .eq(columnToMatch, user.id);
+
+      if (!followData || followData.length === 0) return [];
+
+      const userIds = followData.map(f => f[columnToSelect]);
+
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, avatar_initials, avatar_url, company')
+        .in('id', userIds);
+
+      return profiles || [];
+    },
+    enabled: !!followModalType && !!user?.id
   });
 
   const setUserPosts = (updater) => queryClient.setQueryData(['user_posts', user?.id], (old) => typeof updater === 'function' ? updater(old || []) : updater);
@@ -85,7 +131,7 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
 
     setLoadingState(true);
     try {
-      await validateSession(); // Guardia
+      await validateSession();
       const publicUrl = await uploadFileToSupabase(file, user.id);
       if (publicUrl) {
         const { error } = await supabase.from('profiles').update({ [dbField]: publicUrl }).eq('id', user.id);
@@ -99,14 +145,16 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   };
 
   const handleVote = async (postId, type) => {
-    // Logica idéntica al Feed (optimista)
     if (!currentUser?.id) return;
     const post = userPosts.find(p => p.id === postId); if (!post) return;
     const currentVote = post.user_vote; const newVote = currentVote === type ? null : type;
     setUserPosts(prev => prev.map(p => { if (p.id !== postId) return p; let l = p.likes_count, d = p.dislikes_count; if (currentVote === 'like') l--; if (currentVote === 'dislike') d--; if (newVote === 'like') l++; if (newVote === 'dislike') d++; return { ...p, user_vote: newVote, likes_count: l, dislikes_count: d }; }));
     try {
       if (currentVote) await supabase.from('post_votes').delete().match({ user_id: currentUser.id, post_id: postId });
-      if (newVote) { await supabase.from('post_votes').upsert({ user_id: currentUser.id, post_id: postId, vote_type: newVote }); await notify({ recipientId: post.user_id, type: newVote, entityId: postId }); }
+      if (newVote) { 
+        await supabase.from('post_votes').upsert({ user_id: currentUser.id, post_id: postId, vote_type: newVote }); 
+        await notify({ recipientId: post.user_id, type: newVote, entityId: postId }); 
+      }
       const rpcName = newVote === 'like' ? 'increment_likes' : (newVote === 'dislike' ? 'increment_dislikes' : (currentVote === 'like' ? 'decrement_likes' : 'decrement_dislikes'));
       await supabase.rpc(rpcName, { post_id: postId });
     } catch (e) { queryClient.invalidateQueries(['user_posts', user.id]); }
@@ -131,12 +179,28 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
   const toggleFollow = async () => {
     if (!currentUser?.id || followLoading) return;
     setFollowLoading(true);
-    queryClient.setQueryData(['follow_status', currentUser.id, user.id], !isFollowing);
+    const nextFollowStatus = !isFollowing;
+    queryClient.setQueryData(['follow_status', currentUser.id, user.id], nextFollowStatus);
+    
     try {
-      if (isFollowing) await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', user.id);
-      else { await supabase.from('follows').insert([{ follower_id: currentUser.id, following_id: user.id }]); await notify({ recipientId: user.id, type: 'follow' }); }
+      await validateSession();
+      if (isFollowing) {
+        await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', user.id);
+      } else {
+        const { error } = await supabase.from('follows').insert([{ follower_id: currentUser.id, following_id: user.id }]);
+        if (error) throw error;
+        await notify({ recipientId: user.id, type: 'follow', content: 'ha comenzado a seguirte' });
+      }
       queryClient.invalidateQueries(['feed']);
-    } catch (e) { queryClient.invalidateQueries(['follow_status']); } finally { setFollowLoading(false); }
+      queryClient.invalidateQueries(['follow_status', currentUser.id, user.id]);
+      queryClient.invalidateQueries(['followers_count', user.id]);
+      queryClient.invalidateQueries(['following_count', currentUser.id]);
+      
+    } catch (e) { 
+      queryClient.invalidateQueries(['follow_status', currentUser.id, user.id]); 
+    } finally { 
+      setFollowLoading(false); 
+    }
   };
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -145,7 +209,7 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
     if (!isOwner || !formData.full_name.trim()) return;
     setLoading(true);
     try {
-      await validateSession(); // Guardia crítico
+      await validateSession();
       const updates = { ...formData, experience: formData.experience.sort((a,b) => new Date(b.start_date) - new Date(a.start_date)) };
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
       if (error) throw error;
@@ -154,7 +218,7 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
       queryClient.invalidateQueries({ queryKey: ['feed'] });
       queryClient.invalidateQueries({ queryKey: ['user_posts'] });
       if (onProfileUpdate) onProfileUpdate();
-    } catch(err) { alert("Error al guardar: Sesión expirada o red inestable."); } finally { setLoading(false); }
+    } catch(err) { alert("Error al guardar."); } finally { setLoading(false); }
   };
 
   const renderExperienceSection = () => {
@@ -194,12 +258,59 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
         </Card>
     );
   };
+
   const publicRoleLabel = (displayUser?.role === 'Admin') ? 'Técnico' : (displayUser?.role || 'Sin puesto definido');
 
   if (!user?.id) return <div className="p-10 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" /></div>;
 
   return (
     <div className="pb-24 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 animate-in fade-in">
+
+      {/* 👇 VENTANA FLOTANTE (MODAL) DE SEGUIDORES 👇 */}
+      {followModalType && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setFollowModalType(null)}>
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-gray-50 dark:bg-slate-800">
+              <h3 className="font-bold text-lg text-emerald-deep dark:text-white">
+                {followModalType === 'followers' ? 'Seguidores' : 'Siguiendo'}
+              </h3>
+              <button onClick={() => setFollowModalType(null)} className="text-gray-500 hover:bg-gray-200 dark:hover:bg-slate-700 p-1.5 rounded-full transition-colors">
+                <X size={20}/>
+              </button>
+            </div>
+            
+            <div className="max-h-96 overflow-y-auto p-2">
+              {isLoadingFollowList ? (
+                <div className="py-12 flex justify-center"><Loader2 className="animate-spin text-emerald-600" size={32} /></div>
+              ) : followListData.length === 0 ? (
+                <p className="py-10 text-center text-gray-500 text-sm italic">No hay usuarios para mostrar aquí.</p>
+              ) : (
+                <div className="space-y-1">
+                  {followListData.map(u => (
+                    <div 
+                      key={u.id} 
+                      className="flex items-center gap-3 p-3 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors group"
+                      onClick={() => {
+                        setFollowModalType(null); 
+                        if (onViewProfile) onViewProfile(u.id); 
+                      }}
+                    >
+                      <Avatar initials={u.avatar_initials} src={u.avatar_url} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-sm text-gray-900 dark:text-white truncate group-hover:text-blue-600 transition-colors">{u.full_name}</h4>
+                        <p className="text-xs text-gray-500 truncate">{u.role}</p>
+                      </div>
+                      <ChevronRight size={16} className="text-gray-300 group-hover:text-blue-500" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 👆 FIN DE LA VENTANA FLOTANTE 👆 */}
+
       <div className="bg-white dark:bg-emerald-medium rounded-2xl shadow-xl border border-softgray dark:border-emerald-dark overflow-hidden mb-6">
           <div className="h-40 md:h-56 bg-emerald-dark relative group">
                 {displayUser.cover_url ? <img src={displayUser.cover_url} alt="cover" className="w-full h-full object-cover opacity-100"/> : <div className="w-full h-full bg-gradient-to-r from-emerald-deep via-emerald-medium to-emerald-dark" />}
@@ -210,9 +321,24 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
                 <Avatar initials={displayUser.avatar} src={displayUser.avatar_url} size="xl" className="w-24 h-24 md:w-32 md:h-32 border-4 border-white dark:border-slate-800" />
                 {isOwner && (<label className="absolute bottom-1 right-1 p-2 bg-white dark:bg-slate-800 rounded-full shadow-lg cursor-pointer border border-gray-200 dark:border-slate-700 hover:bg-gray-50 transition-colors">{uploadingAvatar ? <Loader2 size={16} className="animate-spin text-blue-600"/> : <Camera size={16} className="text-gray-700 dark:text-gray-200"/>}<input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'avatar')} /></label>)}
              </div>
+             
              <div className="flex-1 w-full mt-2 md:mt-0 md:mb-2">
-                {editing ? (<div className="space-y-2 max-w-lg"><input name="full_name" value={formData.full_name} onChange={handleChange} className="w-full p-2 text-xl font-bold border rounded dark:bg-slate-700" placeholder="Nombre" /><input name="role" value={formData.role} onChange={handleChange} className="w-full p-2 text-blue-600 border rounded dark:bg-slate-700" placeholder="Puesto" /></div>) : (<div><h1 className="text-2xl md:text-3xl font-extrabold text-emerald-deep dark:text-ivory flex items-center gap-2">{displayUser.name || displayUser.full_name}{isCompanyProfile && <span className="text-xs bg-gray-100 text-gold-premium px-2 py-0.5 rounded-full">Empresa</span>}</h1><p className="text-lg text-gold-premium font-medium">{publicRoleLabel}</p></div>)}
+                {editing ? (
+                  <div className="space-y-2 max-w-lg">
+                    <input name="full_name" value={formData.full_name} onChange={handleChange} className="w-full p-2 text-xl font-bold border rounded dark:bg-slate-700" placeholder="Nombre" />
+                    <input name="role" value={formData.role} onChange={handleChange} className="w-full p-2 text-blue-600 border rounded dark:bg-slate-700" placeholder="Puesto" />
+                  </div>
+                ) : (
+                  <div>
+                    <h1 className="text-2xl md:text-3xl font-extrabold text-emerald-deep dark:text-ivory flex items-center gap-2">
+                      {displayUser.name || displayUser.full_name}
+                      {isCompanyProfile && <span className="text-xs bg-gray-100 text-gold-premium px-2 py-0.5 rounded-full">Empresa</span>}
+                    </h1>
+                    <p className="text-lg text-gold-premium font-medium">{publicRoleLabel}</p>
+                  </div>
+                )}
              </div>
+             
              <div className="absolute top-4 right-4 md:static md:mb-4 flex gap-2">
                 {!isOwner && (<><Button onClick={toggleFollow} variant={isFollowing ? "outline" : "primary"} disabled={followLoading} className="gap-2">{followLoading ? <Loader2 className="animate-spin" size={16}/> : (isFollowing ? <><CheckCircle size={16}/> Siguiendo</> : <><Plus size={16}/> Seguir</>)}</Button><Button onClick={() => openChatWithUser(displayUser)} variant="secondary" className="gap-2"><MessageCircle size={16} /> <span className="hidden sm:inline">Mensaje</span></Button></>)}
                 {isOwner && (editing ? (<div className="flex gap-2"><Button variant="outline" onClick={() => setEditing(false)}><X size={18} /></Button><Button onClick={handleSave} disabled={loading}>{loading ? <Loader2 className="animate-spin" /> : <Save size={18} />}</Button></div>) : (<Button variant="outline" onClick={() => setEditing(true)} className="gap-2"><Edit2 size={16} /> <span className="hidden sm:inline">Editar</span></Button>))}
@@ -221,11 +347,59 @@ const ProfileView = ({ user, currentUser, onProfileUpdate, onViewProfile }) => {
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-6">
+            
+            {/* 👇 Panel Izquierdo de Estadísticas 👇 */}
+            <Card className="p-0 overflow-hidden shadow-md border border-gray-200 dark:border-slate-700">
+              <div className="flex items-center justify-between bg-white dark:bg-slate-900 divide-x divide-gray-200 dark:divide-slate-700">
+                
+                {/* PUBLICACIONES */}
+                <div className="flex-1 group flex flex-col items-center py-4 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all duration-300 cursor-default">
+                  <FileText size={22} className="text-emerald-600 dark:text-emerald-400 mb-1 drop-shadow-sm transition-all duration-300 group-hover:scale-125 group-hover:-translate-y-1 group-hover:drop-shadow-md" />
+                  <span className="font-extrabold text-xl text-emerald-deep dark:text-white transition-colors duration-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">{userPosts.length}</span>
+                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Publicaciones</span>
+                </div>
+
+                {/* SEGUIDORES */}
+                <button 
+                  onClick={() => setFollowModalType('followers')}
+                  className="flex-1 group flex flex-col items-center py-4 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all duration-300 cursor-pointer active:scale-95"
+                >
+                  <Users size={22} className="text-emerald-600 dark:text-emerald-400 mb-1 drop-shadow-sm transition-all duration-300 group-hover:scale-125 group-hover:-translate-y-1 group-hover:drop-shadow-md" />
+                  <span className="font-extrabold text-xl text-emerald-deep dark:text-white transition-colors duration-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">{followersCount}</span>
+                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Seguidores</span>
+                </button>
+
+                {/* SIGUIENDO */}
+                <button 
+                  onClick={() => setFollowModalType('following')}
+                  className="flex-1 group flex flex-col items-center py-4 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all duration-300 cursor-pointer active:scale-95"
+                >
+                  <Handshake size={22} className="text-emerald-600 dark:text-emerald-400 mb-1 drop-shadow-sm transition-all duration-300 group-hover:scale-125 group-hover:-translate-y-1 group-hover:drop-shadow-md" />
+                  <span className="font-extrabold text-xl text-emerald-deep dark:text-white transition-colors duration-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">{followingCount}</span>
+                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Siguiendo</span>
+                </button>
+
+              </div>
+            </Card>
+
             <Card className="p-5"><h3 className="text-sm font-bold text-gold-champagne uppercase tracking-wider mb-3">Sobre mí</h3>{editing ? <textarea name="bio" value={formData.bio} onChange={handleChange} rows={4} className="w-full p-2 border rounded text-sm dark:bg-slate-700" placeholder="Bio..." /> : <p className="text-gray-700 dark:text-gray-300 text-sm whitespace-pre-line">{displayUser.bio || 'Sin biografía.'}</p>}</Card>
             <Card className="p-5"><h3 className="text-sm font-bold text-gold-champagne uppercase tracking-wider mb-4">Contacto</h3><div className="space-y-3"><div className="flex items-center gap-3 text-sm"><Mail size={16} className="text-gray-400" />{editing ? <input name="email" value={formData.email} onChange={handleChange} className="border-b w-full bg-transparent" /> : <span>{displayUser.email || 'No visible'}</span>}</div><div className="flex items-center gap-3 text-sm"><Phone size={16} className="text-gray-400" />{editing ? <input name="phone" value={formData.phone} onChange={handleChange} className="border-b w-full bg-transparent" /> : <span>{displayUser.phone || 'No visible'}</span>}</div></div></Card>
             {!isCompanyProfile && renderExperienceSection()}
         </div>
-        <div className="lg:col-span-2"><div className="mt-0"><h3 className="text-lg font-bold mb-4 flex items-center gap-2"><MessageSquare className="text-gold-premium" size={20} /> Publicaciones</h3>{(isCompanyProfile || isOwner || isFollowing) ? (<div className="space-y-4">{postsLoading ? <Loader2 className="animate-spin mx-auto text-gold-premium" /> : userPosts.length > 0 ? userPosts.map(post => (<PostItem key={post.id} post={post} user={currentUser} onVote={handleVote} onDelete={handleDeletePost} onUpdate={handleUpdatePost} onToggleComments={() => toggleComments(post.id)} showComments={activeCommentsPostId === post.id} comments={commentsData[post.id]} onCommentAction={commentActions} onViewProfile={onViewProfile} onOpenDetail={() => {}} />)) : <p className="text-gray-400 italic text-center py-8">No hay publicaciones recientes.</p>}</div>) : (<Card className="p-10 text-center italic text-gold-premium border-dashed border-2">Sigue a este usuario para ver sus publicaciones.</Card>)}</div></div>
+        <div className="lg:col-span-2">
+          <div className="mt-0">
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><MessageSquare className="text-gold-premium" size={20} /> Publicaciones</h3>
+            {(isCompanyProfile || isOwner || isFollowing) ? (
+              <div className="space-y-4">
+                {postsLoading ? <Loader2 className="animate-spin mx-auto text-gold-premium" /> : userPosts.length > 0 ? userPosts.map(post => (
+                  <PostItem key={post.id} post={post} user={currentUser} onVote={handleVote} onDelete={handleDeletePost} onUpdate={handleUpdatePost} onToggleComments={() => toggleComments(post.id)} showComments={activeCommentsPostId === post.id} comments={commentsData[post.id]} onCommentAction={commentActions} onViewProfile={onViewProfile} onOpenDetail={() => {}} />
+                )) : <p className="text-gray-400 italic text-center py-8">No hay publicaciones recientes.</p>}
+              </div>
+            ) : (
+              <Card className="p-10 text-center italic text-gold-premium border-dashed border-2">Sigue a este usuario para ver sus publicaciones.</Card>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

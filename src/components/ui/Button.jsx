@@ -10,7 +10,8 @@ const Button = ({ children, onClick, variant = 'primary', className = '', ...pro
     secondary:
       'bg-emerald-medium text-ivory hover:bg-emerald-dark border border-emerald-dark',
     ghost:
-      'text-softgray hover:bg-emerald-dark/20 dark:text-gold-champagne dark:hover:bg-emerald-medium/30',
+      // 👇 AQUÍ ESTÁ TU NUEVO BOTÓN ROJO INTENSO 👇
+      'bg-red-100 text-red-500 hover:bg-red-100 shadow-md border border-transparent',
   };
 
   return (

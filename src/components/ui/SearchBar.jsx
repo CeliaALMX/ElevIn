@@ -5,8 +5,10 @@ const SearchBar = ({ onSearch }) => {
   const [query, setQuery] = useState('');
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      onSearch(query);
+    // Si presiona Enter y la barra NO está vacía
+    if (e.key === 'Enter' && query.trim() !== '') {
+      onSearch(query); // Ejecuta la búsqueda
+      setQuery('');    // ¡Esta es la magia que limpia la barra al instante!
     }
   };
 
