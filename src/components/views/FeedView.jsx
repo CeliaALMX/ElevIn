@@ -20,7 +20,6 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [fullScreenPost, setFullScreenPost] = useState(null);
   
-  // 👇 NUEVO ESTADO PARA GUARDAR QUÉ HASHTAG ESTAMOS BUSCANDO
   const [hashtagFilter, setHashtagFilter] = useState(null); 
 
   const queryClient = useQueryClient();
@@ -40,12 +39,14 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
       postsQuery = postsQuery.in('user_id', [user.id, ...followingIds]);
     }
 
-    // 👇 AQUÍ APLICAMOS EL FILTRO EN LA BASE DE DATOS
     if (hashtagFilter) {
       postsQuery = postsQuery.ilike('content', `%${hashtagFilter}%`);
     }
 
-    const { data: postsData, error } = await postsQuery.order('created_at', { ascending: false });
+    // 👇 AQUÍ ESTÁ EL TURBO: .limit(25) para que no descargue todo de golpe 👇
+    const { data: postsData, error } = await postsQuery.order('created_at', { ascending: false }).limit(25);
+    // 👆 FIN DEL TURBO 👆
+
     if (error) throw error;
     if (!postsData || postsData.length === 0) return [];
 
@@ -65,7 +66,7 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
   };
 
   const { data: posts = [], isLoading: loading } = useQuery({
-    queryKey: ['feed', feedType, user.id, hashtagFilter], // 👈 Agregamos el hashtag para que refresque al cambiar
+    queryKey: ['feed', feedType, user.id, hashtagFilter], 
     queryFn: fetchFeedData,
     staleTime: 1000 * 60 * 2,
     retry: 1,
@@ -190,7 +191,6 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
           </div>
         </Card>
 
-        {/* 👇 CARTELITO BONITO QUE AVISA QUE ESTAMOS FILTRANDO POR HASHTAG 👇 */}
         {hashtagFilter && (
           <div className="bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-600 p-4 rounded-xl flex justify-between items-center animate-in slide-in-from-top-2 shadow-sm">
             <div className="flex items-center gap-3">
@@ -224,7 +224,7 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
                 onCommentAction={commentActions}
                 onOpenDetail={setFullScreenPost} 
                 onViewProfile={onViewProfile} 
-                onHashtagClick={setHashtagFilter} // 👈 ¡MAGIA! MANDAMOS LA FUNCIÓN DE FILTRAR
+                onHashtagClick={setHashtagFilter}
               />
             ))}
             {posts.length === 0 && <Card className="p-10 text-center text-gray-400 italic">No encontramos publicaciones con este hashtag.</Card>}
