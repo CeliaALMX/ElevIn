@@ -57,6 +57,19 @@ function AppContent() {
   const [authStatusView, setAuthStatusView] = useState(null); 
 
   const queryClient = useQueryClient();
+
+  // 👇 CONFIGURACIÓN DE CACHÉ PARA FLUIDEZ 👇
+  useEffect(() => {
+    queryClient.setDefaultOptions({
+      queries: {
+        staleTime: 1000 * 60 * 5,    // Datos frescos por 5 minutos
+        gcTime: 1000 * 60 * 15,       // Limpiar memoria cada 15 min
+        refetchOnWindowFocus: false,  // Evita lag al cambiar de pestañas
+        retry: 1                      // No reintentar mil veces si falla algo
+      },
+    });
+  }, [queryClient]);
+
   const userRef = useRef(null);
   const fetchingProfileRef = useRef(null);
   
@@ -166,6 +179,7 @@ function AppContent() {
   }, []);
 
   const handleLogout = async () => { 
+    queryClient.clear(); // Limpia la caché al salir para que la app inicie fresca
     await supabase.auth.signOut();
     setUser(null); setView('feed'); 
     localStorage.removeItem('elevin_view'); localStorage.removeItem('elevin_profile');
@@ -173,11 +187,8 @@ function AppContent() {
   
   const handleViewJobDetail = (job) => { setSelectedJob(job); setView('job-detail'); window.scrollTo(0,0); };
   
-  // 👇 1. AQUÍ ESTÁ LA CORRECCIÓN BLINDADA PARA VER PERFILES 👇
   const handleViewUserProfile = async (userIdOrObj) => { 
     if (!userIdOrObj) return;
-    
-    // Sacamos el ID por si nos mandaron todo el objeto de usuario por error
     const targetId = typeof userIdOrObj === 'object' ? userIdOrObj.id : userIdOrObj;
 
     if (targetId === user.id) { 
@@ -193,7 +204,6 @@ function AppContent() {
       window.scrollTo(0,0); 
     } 
   };
-  // 👆 FIN DE LA CORRECCIÓN 👆
 
   const handleGoToMyProfile = () => { setViewedProfile(null); setView('profile'); };
   const handleApplyJob = (id) => { if (!appliedJobs.includes(id)) setAppliedJobs(prev => [...prev, id]); };
@@ -297,8 +307,15 @@ function AppContent() {
                 {view === 'chat' && <ConversationsView currentUser={user} />}
                 {view === 'admin' && <AdminDashboard currentUser={user} />}
                 
-                {/* 👇 2. AQUÍ CONECTAMOS EL CABLE SUELTO DEL PERFIL (onViewProfile) 👇 */}
-                {view === 'profile' && <ProfileView user={viewedProfile || user} currentUser={user} onProfileUpdate={() => {}} onViewProfile={handleViewUserProfile} />}
+                {/* 👇 VISTA DE PERFIL SIN BOTÓN DE REGRESO 👇 */}
+                {view === 'profile' && (
+                  <ProfileView 
+                    user={viewedProfile || user} 
+                    currentUser={user} 
+                    onProfileUpdate={() => {}} 
+                    onViewProfile={handleViewUserProfile} 
+                  />
+                )}
                 
                 {view === 'settings' && <SettingsView isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />}
                 {view === 'search' && <SearchView results={searchResults} isLoading={isSearching} onViewProfile={handleViewUserProfile} onViewJob={handleViewJobDetail} onItemClick={(item) => { if (item.full_name) handleViewUserProfile(item.id); else if (item.title) handleViewJobDetail(item); }} />}

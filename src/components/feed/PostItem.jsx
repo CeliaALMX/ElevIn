@@ -89,9 +89,8 @@ const PostItem = ({
     });
   };
 
-  // 👇 AQUÍ ESTÁ LA FUNCIÓN PARA COMPARTIR EN WHATSAPP, FB, ETC 👇
   const handleShare = async () => {
-    const appUrl = window.location.origin; // Saca el link de tu página
+    const appUrl = window.location.origin;
     const postText = post.content ? `"${post.content.substring(0, 60)}..."` : 'una nueva publicación';
     
     const shareData = {
@@ -102,17 +101,15 @@ const PostItem = ({
 
     if (navigator.share) {
       try {
-        await navigator.share(shareData); // Esto abre el menú nativo del celular!
+        await navigator.share(shareData);
       } catch (err) {
-        console.log('El usuario canceló o hubo un error al compartir', err);
+        console.log('Error al compartir', err);
       }
     } else {
-      // Plan B si están en una compu muy vieja que no tiene menú de compartir
       navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
-      alert('¡Enlace copiado al portapapeles listo para pegar en WhatsApp!');
+      alert('¡Enlace copiado al portapapeles!');
     }
   };
-  // 👆 FIN DE LA FUNCIÓN DE COMPARTIR 👆
 
   const renderMediaGrid = (list, editable = false) => {
     if (!list || list.length === 0) return null;
@@ -186,7 +183,6 @@ const PostItem = ({
         </div>
         <div className="flex gap-4">
           <button onClick={onToggleComments} className={`flex items-center gap-1.5 text-sm ${showComments ? 'text-blue-600 font-bold' : 'text-gray-500'}`}><MessageSquare size={18} /> <span>{post.comments_count || 0}</span></button>
-          {/* 👇 AQUÍ LE PONEMOS LA FUNCIÓN AL BOTÓN DE COMPARTIR 👇 */}
           <button onClick={handleShare} className="text-gray-500 hover:text-blue-600 transition-colors">
             <Share2 size={18} />
           </button>

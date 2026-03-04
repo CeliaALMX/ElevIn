@@ -12,6 +12,8 @@ import PostDetailModal from '../modals/PostDetailModal';
 import RecommendationsWidget from '../widgets/RecommendationsWidget';
 import { useNotifications } from '../../context/NotificationContext';
 
+const PAGE_SIZE = 6;
+
 const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
   const [text, setText] = useState('');
   const [feedType, setFeedType] = useState('for_you');
@@ -22,13 +24,29 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
   
   const [hashtagFilter, setHashtagFilter] = useState(null); 
 
+  // 👇 Estados nuevos solo para el scroll 👇
+  const [displayPosts, setDisplayPosts] = useState([]);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+
   const queryClient = useQueryClient();
   const { notify } = useNotifications();
   const fileInputRef = useRef(null);
 
-  const fetchFeedData = async () => {
+  // Reiniciar el feed si cambian de usuario o usan un filtro
+  useEffect(() => {
+    setPage(0);
+    setHasMore(true);
+    setDisplayPosts([]);
+  }, [hashtagFilter, user.id]);
+
+  const fetchFeedData = async (pageNumber) => {
     await validateSession().catch(() => {}); 
     
+    const from = pageNumber * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
     let postsQuery = supabase
       .from('posts')
       .select(`*, profiles (full_name, role, avatar_initials, avatar_url, company)`);
@@ -43,20 +61,29 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
       postsQuery = postsQuery.ilike('content', `%${hashtagFilter}%`);
     }
 
-    // 👇 AQUÍ ESTÁ EL TURBO: .limit(25) para que no descargue todo de golpe 👇
-    const { data: postsData, error } = await postsQuery.order('created_at', { ascending: false }).limit(25);
-    // 👆 FIN DEL TURBO 👆
+    // Pedimos solo el rango de 6 publicaciones
+    const { data: postsData, error } = await postsQuery.order('created_at', { ascending: false }).range(from, to);
 
     if (error) throw error;
+    if (!postsData || postsData.length < PAGE_SIZE) setHasMore(false);
     if (!postsData || postsData.length === 0) return [];
 
     const postIds = postsData.map(p => p.id);
-    const { data: allComments } = await supabase.from('post_comments').select('post_id').in('post_id', postIds);
+    
+    // 👇 AQUÍ ESTÁ EL TURBO (PROMISE.ALL) 👇
+    // Pedimos los comentarios y los likes AL MISMO TIEMPO
+    const [commentsResponse, votesResponse] = await Promise.all([
+      supabase.from('post_comments').select('post_id').in('post_id', postIds),
+      supabase.from('post_votes').select('post_id, vote_type').eq('user_id', user.id).in('post_id', postIds)
+    ]);
+
+    const allComments = commentsResponse.data;
+    const userVotes = votesResponse.data;
+    // 👆 FIN DEL TURBO 👆
 
     const countMap = {};
     allComments?.forEach(c => { countMap[c.post_id] = (countMap[c.post_id] || 0) + 1; });
 
-    const { data: userVotes } = await supabase.from('post_votes').select('post_id, vote_type').eq('user_id', user.id).in('post_id', postIds);
     const voteMap = {}; 
     userVotes?.forEach(v => (voteMap[v.post_id] = v.vote_type));
 
@@ -65,30 +92,61 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
     }));
   };
 
-  const { data: posts = [], isLoading: loading } = useQuery({
-    queryKey: ['feed', feedType, user.id, hashtagFilter], 
-    queryFn: fetchFeedData,
+  const { data: initialData, isLoading: loading } = useQuery({
+    queryKey: ['feed', feedType, user.id, hashtagFilter, page], 
+    queryFn: () => fetchFeedData(page),
     staleTime: 1000 * 60 * 2,
     retry: 1,
   });
 
+  // Acumular los posts nuevos con los que ya teníamos (ARREGLADO PARA EL PARPADEO)
   useEffect(() => {
-    if (targetPostId && posts.length > 0) {
-      const postToOpen = posts.find(p => String(p.id) === String(targetPostId));
+    if (initialData) {
+      setDisplayPosts(prev => {
+        // Si acabamos de publicar (página 0), reemplazamos la lista entera de forma invisible
+        if (page === 0) return initialData;
+        
+        // Si estamos bajando (scroll), los sumamos sin duplicar
+        const existingIds = new Set(prev.map(p => p.id));
+        const newPosts = initialData.filter(p => !existingIds.has(p.id));
+        return [...prev, ...newPosts];
+      });
+      setIsFetchingMore(false);
+    }
+  }, [initialData, page]);
+
+  // Sensor para saber cuándo llegamos abajo
+  useEffect(() => {
+    const handleScroll = () => {
+      if (loading || isFetchingMore || !hasMore) return;
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 100) {
+        setIsFetchingMore(true);
+        setPage(prev => prev + 1);
+      }
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [loading, isFetchingMore, hasMore]);
+
+  useEffect(() => {
+    if (targetPostId && displayPosts.length > 0) {
+      const postToOpen = displayPosts.find(p => String(p.id) === String(targetPostId));
       if (postToOpen) {
         setFullScreenPost(postToOpen);
         if (onClearTarget) onClearTarget();
       }
     }
-  }, [targetPostId, posts, onClearTarget]);
+  }, [targetPostId, displayPosts, onClearTarget]);
 
-  const setPosts = (updater) => { queryClient.setQueryData(['feed', feedType, user.id, hashtagFilter], (oldPosts) => { const current = oldPosts || []; return typeof updater === 'function' ? updater(current) : updater; }); };
+  // Modificamos setPosts para que actualice la lista visible sin tocar la BD principal
+  const setPosts = (updater) => {
+    setDisplayPosts(prev => typeof updater === 'function' ? updater(prev) : updater);
+  };
 
   const { activeCommentsPostId, commentsData, toggleComments, fetchComments, commentActions } = useComments(setPosts, user);
 
   const handleVote = async (postId, type) => {
-    const previousPosts = queryClient.getQueryData(['feed', feedType, user.id, hashtagFilter]);
-    const post = previousPosts?.find(p => p.id === postId);
+    const post = displayPosts.find(p => p.id === postId);
     if (!post) return;
     
     const currentVote = post.user_vote;
@@ -108,20 +166,30 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
         await validateSession();
         if (currentVote) {
           await supabase.from('post_votes').delete().match({ user_id: user.id, post_id: postId });
-          const rpcDec = currentVote === 'like' ? 'decrement_likes' : 'decrement_dislikes';
-          try { await supabase.rpc(rpcDec, { post_id: postId }); } catch (e) {}
+          try { await supabase.rpc(currentVote === 'like' ? 'decrement_likes' : 'decrement_dislikes', { post_id: postId }); } catch (e) {}
         }
         if (newVote) {
             const { error: voteError } = await supabase.from('post_votes').upsert({ user_id: user.id, post_id: postId, vote_type: newVote }, { onConflict: 'user_id, post_id' });
             if (voteError) throw voteError;
-            const rpcInc = newVote === 'like' ? 'increment_likes' : 'increment_dislikes';
-            try { await supabase.rpc(rpcInc, { post_id: postId }); } catch (e) {}
+            try { await supabase.rpc(newVote === 'like' ? 'increment_likes' : 'increment_dislikes', { post_id: postId }); } catch (e) {}
 
             if (newVote === 'like' && post.user_id !== user.id) {
                 notify({ recipientId: post.user_id, type: 'like', entityId: String(postId), message: 'le dio me gusta a tu publicación' }).catch(e => console.warn("Error enviando notificación:", e));
             }
         } 
-    } catch (err) { if (err.code !== '23505') { queryClient.setQueryData(['feed', feedType, user.id, hashtagFilter], previousPosts); } }
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeletePost = async (postId) => {
+    try {
+      await validateSession();
+      const { error } = await supabase.from('posts').delete().eq('id', postId);
+      if (error) throw error;
+      setPosts(old => old.filter(p => p.id !== postId));
+    } catch (err) {
+      console.error("Error al borrar:", err.message);
+      alert("No se pudo borrar la publicación.");
+    }
   };
 
   const publish = async () => {
@@ -137,7 +205,14 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
       const { error } = await supabase.from('posts').insert([{ user_id: user.id, content: text, media: uploadedMedia }]);
       if (error) throw error;
       setText(''); setSelectedFiles([]); setPreviews([]);
+      
+      // Reiniciamos a la página 0 para ver los nuevos datos
+      setPage(0);
       queryClient.invalidateQueries({ queryKey: ['feed'] });
+      
+      // Hacemos scroll suave hacia arriba para que el usuario vea su post
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      
     } catch (err) { alert(`Error: ${err.message}`); } finally { setIsUploading(false); }
   };
 
@@ -208,16 +283,17 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
           </div>
         )}
 
-        {loading ? (
+        {loading && page === 0 ? (
           <div className="flex justify-center py-10"><Loader2 className="animate-spin text-emerald-600" size={32} /></div>
         ) : (
           <div className="space-y-4 pb-20">
-            {posts.map(post => (
+            {displayPosts.map(post => (
               <PostItem 
                 key={post.id} 
                 post={post} 
                 user={user} 
                 onVote={handleVote} 
+                onDelete={handleDeletePost} 
                 onToggleComments={() => toggleComments(post.id)} 
                 showComments={activeCommentsPostId === post.id} 
                 comments={commentsData[post.id]} 
@@ -227,7 +303,7 @@ const FeedView = ({ user, onViewProfile, targetPostId, onClearTarget }) => {
                 onHashtagClick={setHashtagFilter}
               />
             ))}
-            {posts.length === 0 && <Card className="p-10 text-center text-gray-400 italic">No encontramos publicaciones con este hashtag.</Card>}
+            {displayPosts.length === 0 && !loading && <Card className="p-10 text-center text-gray-400 italic">No encontramos publicaciones con este hashtag.</Card>}
           </div>
         )}
       </div>
